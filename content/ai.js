@@ -73,11 +73,14 @@ const AIManager = {
    * Identifies matches for multiple fields in a single AI call.
    * @param {Array} fields - Array of {id, context}
    * @param {Array} availableKeys - Array of {keyname, description}
+   * @param {Boolean} isDebug - Whether to log debug information
    * @returns {Promise<Array>} - Array of {inputId, matchedKey}
    */
-  async identifyFieldsBatch(fields, availableKeys) {
+  async identifyFieldsBatch(fields, availableKeys, isDebug = false) {
     const baseSession = await this.getSession();
     if (!baseSession) return [];
+
+    if (isDebug) console.log('AIManager: Starting batch matching for fields:', fields);
 
     let session;
     try {
@@ -136,8 +139,13 @@ const AIManager = {
         responseConstraint: schema
       });
 
+      if (isDebug) console.log('AIManager: Raw AI response:', result);
+
       const parsed = JSON.parse(result);
-      return parsed.matches || [];
+      const matches = parsed.matches || [];
+      
+      if (isDebug) console.log('AIManager: Parsed matches:', matches);
+      return matches;
     } catch (e) {
       console.error('AI batch matching failed:', e);
       return [];

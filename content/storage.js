@@ -171,6 +171,23 @@ const StorageManager = {
   async setDebugSetting(enabled) {
     return new Promise((resolve) => {
       chrome.storage.local.set({ debugEnabled: enabled }, () => {
+        console.log('StorageManager: Debug setting updated to:', enabled);
+        resolve();
+      });
+    });
+  },
+
+  async getOneByOneSetting() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['oneByOneMode'], (result) => {
+        resolve(!!result.oneByOneMode);
+      });
+    });
+  },
+
+  async setOneByOneSetting(enabled) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ oneByOneMode: enabled }, () => {
         resolve();
       });
     });

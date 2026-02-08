@@ -28,6 +28,9 @@ const MainController = {
     const signal = this.abortController.signal;
 
     const isDebug = await StorageManager.getDebugSetting();
+    if (isDebug) console.log('MainController: runAutofill triggered. isDebug:', isDebug);
+    
+    const oneByOne = await StorageManager.getOneByOneSetting();
     const lang = await StorageManager.getLanguage();
     const whitelist = await StorageManager.getWhitelist();
     const currentHost = window.location.hostname;
@@ -141,6 +144,20 @@ const MainController = {
       return overlay;
     };
 
+    const applyHalo = (input) => {
+      const originalBoxShadow = input.style.boxShadow;
+      const originalTransition = input.style.transition;
+      // Faster entry transition for immediate feedback
+      input.style.transition = 'box-shadow 0.2s ease-out, background-color 0.2s ease-out';
+      input.style.boxShadow = '0 0 15px 5px rgba(66, 133, 244, 0.8)';
+      return () => {
+        input.style.boxShadow = originalBoxShadow;
+        setTimeout(() => {
+          input.style.transition = originalTransition;
+        }, 300);
+      };
+    };
+
     try {
       const isEncrypted = await StorageManager.isEncryptionEnabled();
       if (isEncrypted) {
@@ -153,6 +170,8 @@ const MainController = {
       }
 
       const personalInfo = await StorageManager.getPersonalInfo();
+      if (isDebug) console.log('MainController: Personal info retrieved:', personalInfo.length, 'items');
+
       if (personalInfo.length === 0) {
         const msg = lang === 'zh' ? '请先在扩展选项中配置个人信息。' : 'Please configure your personal information in the extension options first.';
         await customAlert(lang === 'zh' ? '提示' : 'Tip', msg);
@@ -161,41 +180,77 @@ const MainController = {
       }
 
       const inputs = InputDetector.getVisibleInputs();
+      if (isDebug) console.log('MainController: Visible inputs found:', inputs.length);
+
       if (inputs.length === 0) {
         this.isProcessing = false;
         return;
       }
 
-      const loadingOverlay = showLoading();
-      let matches = [];
-      try {
-        const fieldBatch = inputs.map((input, index) => ({ id: index, context: InputDetector.getInputContext(input) }));
-        matches = await AIManager.identifyFieldsBatch(fieldBatch, personalInfo);
-      } finally {
-        loadingOverlay.remove();
-      }
+      const executeFill = async (input, matchedKey) => {
+        const infoItem = personalInfo.find(i => i.keyname === matchedKey);
+        if (!infoItem) return;
 
-      for (const match of matches) {
-        if (signal.aborted) break;
-        if (match.matchedKey) {
-          const input = inputs[match.inputId];
-          const infoItem = personalInfo.find(i => i.keyname === match.matchedKey);
-          if (input && infoItem) {
-            let valueToFill = infoItem.value;
-            if (infoItem.isSecret) {
-              if (isWhitelisted) {
-                const title = lang === 'zh' ? '敏感字段确认' : 'Sensitive Field';
-                const body = lang === 'zh' 
-                  ? `检测到高敏感字段：<b>${infoItem.keyname}</b><br>描述：${infoItem.description || '无'}<br><br>页面：${currentHost}<br>确定要填写此项吗？`
-                  : `High sensitivity field: <b>${infoItem.keyname}</b><br>Description: ${infoItem.description || 'None'}<br><br>Site: ${currentHost}<br>Fill this field?`;
-                if (!(await customConfirm(title, body))) continue;
-              } else {
-                valueToFill = infoItem.fakeValue || '••••••••';
-              }
-            }
-            InputFiller.fill(input, valueToFill);
-            input.style.backgroundColor = '#e8f0fe';
+        let valueToFill = infoItem.value;
+        if (infoItem.isSecret) {
+          if (isWhitelisted) {
+            const title = lang === 'zh' ? '敏感字段确认' : 'Sensitive Field';
+            const body = lang === 'zh' 
+              ? `检测到高敏感字段：<b>${infoItem.keyname}</b><br>描述：${infoItem.description || '无'}<br><br>页面：${currentHost}<br>确定要填写此项吗？`
+              : `High sensitivity field: <b>${infoItem.keyname}</b><br>Description: ${infoItem.description || 'None'}<br><br>Site: ${currentHost}<br>Fill this field?`;
+            if (!(await customConfirm(title, body))) return;
+          } else {
+            valueToFill = infoItem.fakeValue || '••••••••';
           }
+        }
+        
+        if (isDebug) console.log(`MainController: Filling ${matchedKey}`);
+        InputFiller.fill(input, valueToFill);
+        input.style.backgroundColor = '#e8f0fe';
+      };
+
+      if (oneByOne) {
+        if (isDebug) console.log('MainController: One-by-One mode started');
+        for (let i = 0; i < inputs.length; i++) {
+          if (signal.aborted) break;
+          const input = inputs[i];
+          const removeHalo = applyHalo(input); // Halo starts for scanning
+          
+          try {
+            await new Promise(r => setTimeout(r, 150)); // Ensure user sees where it scans
+            const context = InputDetector.getInputContext(input);
+            const [match] = await AIManager.identifyFieldsBatch([{ id: i, context }], personalInfo, isDebug);
+            
+            if (match?.matchedKey) {
+              await executeFill(input, match.matchedKey);
+              await new Promise(r => setTimeout(r, 400)); // Stay lit after filling
+            } else {
+              await new Promise(r => setTimeout(r, 200)); // Brief pause even if no match
+            }
+          } finally {
+            removeHalo();
+            // Wait for the halo to fade out before moving to the next one
+            await new Promise(r => setTimeout(r, 250));
+          }
+        }
+      } else {
+        const loadingOverlay = showLoading();
+        try {
+          const fieldBatch = inputs.map((input, index) => ({ id: index, context: InputDetector.getInputContext(input) }));
+          const matches = await AIManager.identifyFieldsBatch(fieldBatch, personalInfo, isDebug);
+          
+          for (const match of matches) {
+            if (signal.aborted) break;
+            if (match.matchedKey) {
+              const input = inputs[match.inputId];
+              const removeHalo = applyHalo(input); // Visual feedback for batch filling
+              await executeFill(input, match.matchedKey);
+              await new Promise(r => setTimeout(r, 400));
+              removeHalo();
+            }
+          }
+        } finally {
+          loadingOverlay.remove();
         }
       }
     } catch (e) {

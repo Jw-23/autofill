@@ -117,9 +117,15 @@
       <button id="lang-toggle" class="lang-btn">English / 中文</button>
       <button id="security-btn" class="lang-btn" style="color:var(--danger-color);">🔒 Security (安全)</button>
       <!-- 隐藏调试按钮 -->
-      <div style="display:flex; align-items:center; gap:5px;">
-        <input type="checkbox" id="debug-toggle" style="width:auto;">
-        <label for="debug-toggle" style="margin:0;" data-i18n="debugLogs">Debug Logs (调试日志)</label>
+      <div style="display:flex; align-items:center; gap:15px;">
+        <div style="display:flex; align-items:center; gap:5px;">
+          <input type="checkbox" id="one-by-one-toggle" style="width:auto;">
+          <label for="one-by-one-toggle" style="margin:0;" data-i18n="oneByOne">One-by-one mode (逐个匹配)</label>
+        </div>
+        <div style="display:flex; align-items:center; gap:5px;">
+          <input type="checkbox" id="debug-toggle" style="width:auto;">
+          <label for="debug-toggle" style="margin:0;" data-i18n="debugLogs">Debug Logs (调试日志)</label>
+        </div>
       </div>
     </div>
   </div>

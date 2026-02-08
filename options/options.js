@@ -38,7 +38,8 @@ const i18n = {
     resetData: "销毁数据并重置",
     resetConfirm: "确定要销毁所有数据并重置吗？此操作无法撤销！",
     enableConfirm: "一旦启用，每次填写都需输入密码。确定吗？",
-    encDone: "加密已启用！"
+    encDone: "加密已启用！",
+    oneByOne: "逐个匹配模式"
   },
   en: {
     debugLogs: "Debug Logs",
@@ -76,7 +77,8 @@ const i18n = {
     resetData: "Destroy All Data & Reset Security",
     resetConfirm: "Are you sure you want to destroy all data and reset all security settings? This action cannot be undone!",
     enableConfirm: "Once enabled, you will need your password to fill forms. Existing data will be encrypted. Continue?",
-    encDone: "Encryption enabled!"
+    encDone: "Encryption enabled!",
+    oneByOne: "One-by-one Mode"
   }
 };
 
@@ -164,7 +166,14 @@ async function initSettings() {
   debugToggle.checked = await StorageManager.getDebugSetting();
   
   debugToggle.onchange = async () => {
+    console.log('Options: Toggling debug log:', debugToggle.checked);
     await StorageManager.setDebugSetting(debugToggle.checked);
+  };
+
+  const oneByOneToggle = document.getElementById('one-by-one-toggle');
+  oneByOneToggle.checked = await StorageManager.getOneByOneSetting();
+  oneByOneToggle.onchange = async () => {
+    await StorageManager.setOneByOneSetting(oneByOneToggle.checked);
   };
 
   const langToggle = document.getElementById('lang-toggle');
