@@ -5,54 +5,63 @@ const AIManager = {
 
   async getSession() {
     if (this.session) return this.session;
-    
+
     // Check if the AI API is available
     const AIProvider = typeof ai !== 'undefined' && ai.languageModel ? ai.languageModel : (typeof LanguageModel !== 'undefined' ? LanguageModel : null);
-    
+
     if (!AIProvider) {
       alert('Chrome Built-in AI (Gemini Nano) is not available. Please enable it in chrome://flags.');
       return null;
     }
 
     try {
-      // Check capabilities for download status
-      const capabilities = await AIProvider.capabilities();
-      if (capabilities.available === 'after-download') {
+      // Get system default parameters first
+      const params = await AIProvider.params();
+      
+      const config = {
+        expectedInputs: [{ type: 'text', languages: ['en'] }],
+        expectedOutputs: [{ type: 'text', languages: ['en'] }]
+      };
+
+      // Check availability with the same options as create/prompt
+      const status = await AIProvider.availability(config);
+
+      if (status === 'after-download') {
         alert('AI 模型正在下载中，请稍后再试（下载进度可在 chrome://components 中查看 "Optimization Guide On Device Model"）。');
         return null;
-      } else if (capabilities.available === 'no') {
-        alert('当前浏览器环境不支持内置 AI，请确认已开启相关实验性功能。');
+      } else if (status === 'no') {
+        alert('当前浏览器环境不支持内置 AI，请确认已开启相关实验性功能并重启浏览器。');
         return null;
       }
 
+      const systemPromptContent = `STRICT MATCHING RULE: You are a precise form-filling assistant.
+      Your goal is to map each form input to exactly ONE personal data key from the provided list, or return null if no certain match exists.
+
+      Decision Logic:
+      1. **Evaluation**: For each form input, analyze its context (labels, placeholders, names) and compare it against the "Description" of all available personal data keys.
+      2. **Strict Selection**: Select the key whose Description has the strongest semantic match.
+      3. **Skip Instruction**: If NO key is a strong match (i.e., confidence < 90%), you MUST return null for that field. Do not guess. Do not halluncinate.
+      4. **De-duplication**: If multiple fields look similar, use the global context to differentiate them.
+      5. **Language**: All analysis and matchedKey output MUST be in English. The matchedKey must be an exact string match of a provided keyname.
+      6. **Safety**: Never fill passwords, captchas, bank/card info, or OTPs.
+
+      Failure to find a 100% match => RETURN NULL.`;
+
       this.session = await AIProvider.create({
-        systemPrompt: `ABSOLUTE RULE: If there is ANY doubt, return null. Do not guess. It is always safer to do nothing than to fill incorrectly.
-
-      You are a strict and precise form-filling assistant. Your only task is to select a single key from the user's data, or return null when not certain.
-
-      Decision Policy (must follow):
-      1. **Zero Tolerance**: If you are not 100% certain, return null.
-      2. **Strict Semantic Matching**: Only match if the input context has a strong, direct, and unambiguous semantic relationship with a key's Description.
-      3. **Low Association => Null**: If the context's relevance to ALL available keys is low or average, you MUST return null. Do not try to pick the "best fit" among weak candidates.
-      4. **No Weak Matches**: Generic labels like "Input", "Type here", "Required", "Field", or a short/ambiguous context => return null.
-      5. **Disambiguation Required**:
-         - "Phone" != "Address". "Email" != "Name". "Username" != "Full name".
-         - Address clues: Street, City, Zip, Postal, Shipping, Delivery.
-         - Phone clues: Mobile, Cell, Tel, +country code.
-      6. **Never Fill These**: Search, Captcha, Password, Verification code/OTP, Credit Card, Bank, Security answers.
-
-      If the context is unclear, return null.`,
-        expectedOutputs: [{
-          type: 'text',
-          languages: ['en']
-        }]
+        ...config,
+        initialPrompts: [{
+          role: 'system',
+          content: systemPromptContent
+        }],
+        temperature: params.defaultTemperature,
+        topK: params.defaultTopK
       });
-      
+
       // Monitor session for unexpected loss
       this.session.addEventListener('error', () => {
         this.session = null;
       });
-      
+
       return this.session;
     } catch (e) {
       console.error('Failed to create AI session:', e);
@@ -61,82 +70,89 @@ const AIManager = {
   },
 
   /**
-   * Identifies which personal info key fits the input context.
-   * @param {string} contextText - Text surrounding the input (label, placeholders, nearby text)
-   * @param {Array} availableKeys - List of {keyname, description}
-   * @returns {Promise<string|null>} - The matching keyname or null
+   * Identifies matches for multiple fields in a single AI call.
+   * @param {Array} fields - Array of {id, context}
+   * @param {Array} availableKeys - Array of {keyname, description}
+   * @returns {Promise<Array>} - Array of {inputId, matchedKey}
    */
-  async identifyField(contextText, availableKeys) {
+  async identifyFieldsBatch(fields, availableKeys) {
     const baseSession = await this.getSession();
-    if (!baseSession) return null;
+    if (!baseSession) return [];
 
     let session;
     try {
-      // Use clone() to keep the system prompt but avoid history buildup
-      // This ensures each field identification is independent and consistent.
       session = await baseSession.clone();
     } catch (e) {
-      console.warn('Session clone failed, using base session (history might affect results):', e);
       session = baseSession;
     }
 
     const schema = {
       type: "object",
       properties: {
-        matchedKey: {
-          type: "string",
-          nullable: true,
-          description: "The keyname that best matches the input context, or null if no match is found."
+        matches: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              inputId: { type: "integer" },
+              matchedKey: {
+                type: "string",
+                nullable: true,
+                description: "The keyname from Personal Data Keys, or null if no match."
+              }
+            },
+            required: ["inputId", "matchedKey"]
+          }
         }
       },
-      required: ["matchedKey"]
+      required: ["matches"]
     };
 
-    const keysDescription = availableKeys.map(k => `- Key: "${k.keyname}" | Description: "${k.description}"`).join('\n');
-    
+    const keysDescription = availableKeys.map(k => {
+      const sensitivity = k.isSecret ? " [HIGH SENSITIVITY]" : "";
+      return `- Key: "${k.keyname}" | Description: "${k.description}"${sensitivity}`;
+    }).join('\n');
+
+    const fieldsList = fields.map(f => `[Input ID: ${f.id}] Context: "${f.context}"`).join('\n');
+
     const prompt = `
-      [Task]:
-      Choose the single best key ONLY if you are absolutely certain. If there is any doubt, return null.
-      
-      [Input Context]: "${contextText}"
+      [Target]: Map each input context to the BEST fitting Personal Data Key or return null.
       
       [User's Personal Data Keys]:
       ${keysDescription}
       
-      [Decision Logic]:
-      - **Rule #1**: Only match when the context is explicit and unambiguous.
-      - **Rule #2**: Perform a relevance check. If the "form context" does not have a high degree of correlation with any "key description", return null.
-      - **Rule #3**: Do not pick the "closest match" if that match is still weak.
-      - **Rule #4**: If multiple keys could fit, return null.
-      - Examples:
-        - Context "Ship to" + description "Home shipping address" => match (High Correlation).
-        - Context "Mobile" + description "Personal phone" => match (High Correlation).
-        - Context "Please enter info" or "Attribute" => return null (Low Correlation).
-        - Context "Search" or "OTP" => return null (Explicit Exclusion).
+      [Current Form Inputs to Process]:
+      ${fieldsList}
       
-      Response (JSON with matchedKey or null):
+      [Matching Constraints]:
+      1. "matchedKey" must be the exact keyname or null.
+      2. "inputId" must be the exact integer provided.
+      3. If a field's context is ambiguous or doesn't fit any description, set matchedKey to null.
+      4. OUTPUT LANGUAGE: ENGLISH ONLY.
     `;
 
     try {
-      // Chrome 137+ supports responseConstraint for structured output
       const result = await session.prompt(prompt, {
         responseConstraint: schema
       });
-      
+
       const parsed = JSON.parse(result);
-      return parsed.matchedKey;
+      return parsed.matches || [];
     } catch (e) {
-      console.error('AI matching failed:', e);
-      // If the prompt fails, the base session might be corrupted, so we clear it
-      if (e.message?.toLowerCase().includes('session') || e.message?.toLowerCase().includes('aborted')) {
-        this.session = null;
-      }
-      return null;
+      console.error('AI batch matching failed:', e);
+      return [];
     } finally {
-      // If we used a cloned session, destroy it to free memory
       if (session && session !== baseSession && typeof session.destroy === 'function') {
         session.destroy();
       }
     }
+  },
+
+  /**
+   * @deprecated Use identifyFieldsBatch for better context.
+   */
+  async identifyField(contextText, availableKeys) {
+    const matches = await this.identifyFieldsBatch([{ id: 0, context: contextText }], availableKeys);
+    return matches.length > 0 ? matches[0].matchedKey : null;
   }
 };

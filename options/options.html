@@ -115,6 +115,7 @@
     </div>
     <div class="settings-row">
       <button id="lang-toggle" class="lang-btn">English / 中文</button>
+      <button id="security-btn" class="lang-btn" style="color:var(--danger-color);">🔒 Security (安全)</button>
       <div style="display:flex; align-items:center; gap:5px;">
         <input type="checkbox" id="debug-toggle" style="width:auto;">
         <label for="debug-toggle" style="margin:0;" data-i18n="debugLogs">Debug Logs (调试日志)</label>
@@ -123,35 +124,56 @@
   </div>
   
   <div class="container">
+    <div id="unlock-card" class="card" style="display:none; text-align:center;">
+      <h3 data-i18n="unlockTitle">Unlock Vault</h3>
+      <p data-i18n="unlockDesc">Enter master password to access your data.</p>
+      <input type="password" id="unlock-pass" placeholder="Password" style="margin-bottom:15px;">
+      <button id="unlock-btn" class="save-btn" data-i18n="unlockBtn">Unlock</button>
+    </div>
+
     <div id="add-form" class="card">
-      <h3 data-i18n="addNewInfo">Add New Info (添加信息)</h3>
+      <h3 data-i18n="addNewInfo">Add New Info</h3>
       <div class="form-group">
-        <label data-i18n="labelKeyname">Keyname (e.g. phone_number)</label>
+        <label data-i18n="labelKeyname">Keyname</label>
         <input type="text" id="new-keyname" placeholder="unique_key">
       </div>
       <div class="form-group">
-        <label data-i18n="labelDesc">Description (Help AI match)</label>
+        <label data-i18n="labelDesc">Description</label>
         <input type="text" id="new-description" placeholder="e.g. My mobile phone for deliveries">
       </div>
       <div class="form-group">
-        <label data-i18n="labelValue">Value / 内容</label>
+        <label data-i18n="labelValue">Value</label>
         <input type="text" id="new-value" placeholder="The actual content to fill">
+      </div>
+      <div id="new-fake-value-group" class="form-group" style="display:none;">
+        <label data-i18n="labelFakeValue">Fake Value</label>
+        <input type="text" id="new-fake-value" placeholder="e.g. 138-0000-0000">
       </div>
       <div class="form-group" style="display:flex; align-items:center; gap:8px;">
         <input type="checkbox" id="new-is-secret" style="width:auto;">
-        <label for="new-is-secret" style="margin:0;" data-i18n="labelSecret">Confidential (Mask in list view)</label>
+        <label for="new-is-secret" style="margin:0;" data-i18n="labelSecret">High Sensitivity</label>
       </div>
-      <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry (保存)</button>
+      <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry</button>
     </div>
 
-    <h2 data-i18n="savedInfo">Saved Information (已存信息)</h2>
+    <h2 data-i18n="savedInfo">Saved Information</h2>
     <div id="info-list" class="card" style="padding:0;"></div>
+
+    <h2 data-i18n="whitelistTitle">Trusted Websites</h2>
+    <div class="card">
+      <p style="font-size:13px; color:#666;" data-i18n="whitelistDesc">Real values for high-sensitivity data are only filled on these sites.</p>
+      <div style="display:flex; gap:10px; margin-bottom:15px;">
+        <input type="text" id="new-whitelist-item" placeholder="e.g. github.com" style="flex:1;">
+        <button id="add-whitelist-btn" class="save-btn" data-i18n="addBtn">Add</button>
+      </div>
+      <div id="whitelist-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+    </div>
   </div>
 
   <!-- Edit Modal -->
   <div id="edit-modal" class="modal">
     <div class="modal-content">
-      <h3 data-i18n="editTitle">Edit Info (编辑信息)</h3>
+      <h3 data-i18n="editTitle">Edit Info</h3>
       <input type="hidden" id="edit-old-key">
       <div class="form-group">
         <label data-i18n="labelKeyname">Keyname</label>
@@ -165,17 +187,47 @@
         <label data-i18n="labelValue">Value</label>
         <input type="text" id="edit-value">
       </div>
+      <div id="edit-fake-value-group" class="form-group" style="display:none;">
+        <label data-i18n="labelFakeValue">Fake Value</label>
+        <input type="text" id="edit-fake-value">
+      </div>
       <div class="form-group" style="display:flex; align-items:center; gap:8px;">
         <input type="checkbox" id="edit-is-secret" style="width:auto;">
-        <label for="edit-is-secret" style="margin:0;" data-i18n="labelSecret">Confidential</label>
+        <label for="edit-is-secret" style="margin:0;" data-i18n="labelSecret">High Sensitivity</label>
       </div>
       <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
-        <button id="cancel-edit" class="lang-btn" data-i18n="cancelBtn">Cancel (取消)</button>
-        <button id="save-edit" class="save-btn" data-i18n="updateBtn">Update (更新)</button>
+        <button id="cancel-edit" class="lang-btn" data-i18n="cancelBtn">Cancel</button>
+        <button id="save-edit" class="save-btn" data-i18n="updateBtn">Update</button>
       </div>
     </div>
   </div>
 
+  <!-- Security Modal -->
+  <div id="security-modal" class="modal">
+    <div class="modal-content">
+      <h3 data-i18n="securityTitle">Security Settings</h3>
+      <p id="security-status"></p>
+      <div id="set-pass-area">
+        <div class="form-group">
+          <label data-i18n="newMasterPass">New Master Password</label>
+          <input type="password" id="new-master-pass">
+        </div>
+        <div class="form-group">
+          <label data-i18n="confirmMasterPass">Confirm Password</label>
+          <input type="password" id="confirm-master-pass">
+        </div>
+        <button id="enable-encryption" class="save-btn" data-i18n="enableEncryption">Enable Encryption</button>
+      </div>
+      <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+        <button id="factory-reset" class="delete-btn" style="width: 100%; border: 1px solid var(--danger-color);" data-i18n="resetData">Destroy All Data & Reset</button>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+        <button id="close-security" class="lang-btn" data-i18n="closeBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../content/crypto.js"></script>
   <script src="../content/storage.js"></script>
   <script src="options.js"></script>
 </body>
