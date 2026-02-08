@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "AI Autofill"
+  },
+  "extensionDescription": {
+    "message": "Autofill using Local AI (Gemini Nano)"
+  }
+}

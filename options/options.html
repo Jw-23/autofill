@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AI Autofill Settings</title>
+  <style>
+    :root {
+      --primary-color: #4285f4;
+      --danger-color: #d93025;
+      --bg-color: #f8f9fa;
+      --card-bg: #ffffff;
+    }
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      padding: 0; 
+      margin: 0; 
+      background-color: var(--bg-color);
+      color: #3c4043;
+    }
+    .header {
+      background-color: var(--card-bg);
+      padding: 20px 40px;
+      border-bottom: 1px solid #dadce0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(60,64,67,0.3);
+      margin-bottom: 24px;
+    }
+    h1, h2, h3 { margin-top: 0; }
+    .form-group { margin-bottom: 20px; }
+    label { 
+      display: block; 
+      margin-bottom: 8px; 
+      font-weight: 500; 
+      font-size: 14px;
+    }
+    input, textarea { 
+      width: 100%; 
+      padding: 10px; 
+      box-sizing: border-box; 
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 2px rgba(66,133,244,0.1);
+    }
+    button { 
+      padding: 10px 20px; 
+      cursor: pointer; 
+      border: none;
+      border-radius: 4px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    .save-btn { background-color: var(--primary-color); color: white; }
+    .save-btn:hover { background-color: #357abd; }
+    .delete-btn { background-color: transparent; color: var(--danger-color); }
+    .delete-btn:hover { background-color: #fce8e6; }
+    
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 16px;
+      border-bottom: 1px solid #f1f3f4;
+    }
+    .info-item:last-child { border-bottom: none; }
+    .item-main { flex: 1; }
+    .item-key { font-weight: bold; font-size: 16px; color: var(--primary-color); margin-bottom: 4px; }
+    .item-desc { font-size: 13px; color: #5f6368; font-style: italic; }
+    .item-val { margin-top: 8px; font-family: monospace; background: #fdfdfd; padding: 4px; border: 1px solid #eee; }
+    .item-actions { display: flex; gap: 8px; }
+    .edit-btn { background-color: transparent; color: var(--primary-color); }
+    .edit-btn:hover { background-color: #e8f0fe; }
+    
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    .modal-content {
+      background-color: white;
+      margin: 10% auto;
+      padding: 24px;
+      border-radius: 8px;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-size: 24px;">🤖</span>
+      <h1 style="margin:0; font-size: 22px;">AI Autofill</h1>
+    </div>
+    <div class="settings-row">
+      <button id="lang-toggle" class="lang-btn">English / 中文</button>
+      <div style="display:flex; align-items:center; gap:5px;">
+        <input type="checkbox" id="debug-toggle" style="width:auto;">
+        <label for="debug-toggle" style="margin:0;" data-i18n="debugLogs">Debug Logs (调试日志)</label>
+      </div>
+    </div>
+  </div>
+  
+  <div class="container">
+    <div id="add-form" class="card">
+      <h3 data-i18n="addNewInfo">Add New Info (添加信息)</h3>
+      <div class="form-group">
+        <label data-i18n="labelKeyname">Keyname (e.g. phone_number)</label>
+        <input type="text" id="new-keyname" placeholder="unique_key">
+      </div>
+      <div class="form-group">
+        <label data-i18n="labelDesc">Description (Help AI match)</label>
+        <input type="text" id="new-description" placeholder="e.g. My mobile phone for deliveries">
+      </div>
+      <div class="form-group">
+        <label data-i18n="labelValue">Value / 内容</label>
+        <input type="text" id="new-value" placeholder="The actual content to fill">
+      </div>
+      <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry (保存)</button>
+    </div>
+
+    <h2 data-i18n="savedInfo">Saved Information (已存信息)</h2>
+    <div id="info-list" class="card" style="padding:0;"></div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div id="edit-modal" class="modal">
+    <div class="modal-content">
+      <h3 data-i18n="editTitle">Edit Info (编辑信息)</h3>
+      <input type="hidden" id="edit-old-key">
+      <div class="form-group">
+        <label data-i18n="labelKeyname">Keyname</label>
+        <input type="text" id="edit-keyname">
+      </div>
+      <div class="form-group">
+        <label data-i18n="labelDesc">Description</label>
+        <input type="text" id="edit-description">
+      </div>
+      <div class="form-group">
+        <label data-i18n="labelValue">Value</label>
+        <input type="text" id="edit-value">
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+        <button id="cancel-edit" class="lang-btn" data-i18n="cancelBtn">Cancel (取消)</button>
+        <button id="save-edit" class="save-btn" data-i18n="updateBtn">Update (更新)</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../content/storage.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

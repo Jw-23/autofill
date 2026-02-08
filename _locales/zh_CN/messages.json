@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "AI 自动填写"
+  },
+  "extensionDescription": {
+    "message": "使用本地 AI (Gemini Nano) 实现表单自动填写"
+  }
+}
