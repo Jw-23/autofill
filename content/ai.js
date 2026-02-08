@@ -10,23 +10,38 @@ const AIManager = {
     const AIProvider = typeof ai !== 'undefined' && ai.languageModel ? ai.languageModel : (typeof LanguageModel !== 'undefined' ? LanguageModel : null);
     
     if (!AIProvider) {
-      console.warn('Chrome Prompt API (Gemini Nano) is not available.');
+      alert('Chrome Built-in AI (Gemini Nano) is not available. Please enable it in chrome://flags.');
       return null;
     }
 
     try {
+      // Check capabilities for download status
+      const capabilities = await AIProvider.capabilities();
+      if (capabilities.available === 'after-download') {
+        alert('AI 模型正在下载中，请稍后再试（下载进度可在 chrome://components 中查看 "Optimization Guide On Device Model"）。');
+        return null;
+      } else if (capabilities.available === 'no') {
+        alert('当前浏览器环境不支持内置 AI，请确认已开启相关实验性功能。');
+        return null;
+      }
+
       this.session = await AIProvider.create({
-        systemPrompt: `CRITICAL: IF YOU ARE NOT 100% SURE ABOUT A MATCH, YOU MUST RETURN NULL. DO NOT FILL. IT IS BETTER TO DO NOTHING THAN TO FILL INCORRECTLY.
+        systemPrompt: `ABSOLUTE RULE: If there is ANY doubt, return null. Do not guess. It is always safer to do nothing than to fill incorrectly.
 
-You are a strict and precise form-filling assistant. Your sole purpose is to accurately map web input fields to user-provided data keys.
+      You are a strict and precise form-filling assistant. Your only task is to select a single key from the user's data, or return null when not certain.
 
-Matching Rules:
-1. **Zero Tolerance for Errors**: This is your highest priority. Return null for any ambiguity.
-2. **Context Disambiguation**: 
-   - Distinction is key. "Phone" != "Address". "Email" != "Name".
-   - Watch out for "Address" words (Street, City, Zip, Shipping) versus "Phone" words (Mobile, Cell, +1).
-   - Watch out for "Name" words (Full Name, Last Name) versus "Username" or "Login".
-3. **Ignore Irrelevant Fields**: If the input appears to be a Search bar, Captcha, Password, Credit Card Number, or OTP, return null immediately.`,
+      Decision Policy (must follow):
+      1. **Zero Tolerance**: If you are not 100% certain, return null.
+      2. **Strict Semantic Matching**: Only match if the input context has a strong, direct, and unambiguous semantic relationship with a key's Description.
+      3. **Low Association => Null**: If the context's relevance to ALL available keys is low or average, you MUST return null. Do not try to pick the "best fit" among weak candidates.
+      4. **No Weak Matches**: Generic labels like "Input", "Type here", "Required", "Field", or a short/ambiguous context => return null.
+      5. **Disambiguation Required**:
+         - "Phone" != "Address". "Email" != "Name". "Username" != "Full name".
+         - Address clues: Street, City, Zip, Postal, Shipping, Delivery.
+         - Phone clues: Mobile, Cell, Tel, +country code.
+      6. **Never Fill These**: Search, Captcha, Password, Verification code/OTP, Credit Card, Bank, Security answers.
+
+      If the context is unclear, return null.`,
         expectedOutputs: [{
           type: 'text',
           languages: ['en']
@@ -81,8 +96,7 @@ Matching Rules:
     
     const prompt = `
       [Task]:
-      Identify the specific key from the list above that belongs in this input field. 
-      IF YOU ARE AT ALL UNCERTAIN, RETURN NULL.
+      Choose the single best key ONLY if you are absolutely certain. If there is any doubt, return null.
       
       [Input Context]: "${contextText}"
       
@@ -90,12 +104,15 @@ Matching Rules:
       ${keysDescription}
       
       [Decision Logic]:
-      - **Rule #1**: Match ONLY if highly certain. Otherwise, return null.
-      - **Rule #2**: Rely heavily on the 'Description' field to understand what each key represents.
-      - If the input context aligns with a key's Description (e.g., context "Where to deliver" matches description "Home shipping address"), that is a match.
-      - If the context mentions "Mobile" and you have a "phone" key, match it.
-      - If the context is generic (e.g., just "Type here") or unrelated (e.g., "Search", "Code"), return null.
-      - If the input requires an address but you only have a phone number, return null.
+      - **Rule #1**: Only match when the context is explicit and unambiguous.
+      - **Rule #2**: Perform a relevance check. If the "form context" does not have a high degree of correlation with any "key description", return null.
+      - **Rule #3**: Do not pick the "closest match" if that match is still weak.
+      - **Rule #4**: If multiple keys could fit, return null.
+      - Examples:
+        - Context "Ship to" + description "Home shipping address" => match (High Correlation).
+        - Context "Mobile" + description "Personal phone" => match (High Correlation).
+        - Context "Please enter info" or "Attribute" => return null (Low Correlation).
+        - Context "Search" or "OTP" => return null (Explicit Exclusion).
       
       Response (JSON with matchedKey or null):
     `;

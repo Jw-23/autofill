@@ -3,7 +3,7 @@
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "ai-autofill-run",
-    title: "🤖 运行 AI 自动填写",
+    title: "🤖 AI Auto Fill",
     contexts: ["editable", "page"]
   });
 });
