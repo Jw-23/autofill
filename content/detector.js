@@ -15,38 +15,39 @@ const InputDetector = {
 
   /**
    * Gathers context for a specific input.
-   * Looks at placeholder, name, id, and recursively searches for the first parent with text.
+   * Only looks at the textContent of the first parent that has text.
    * @param {HTMLInputElement} input 
    * @returns {string}
    */
   getInputContext(input) {
-    let context = [];
-    
-    if (input.placeholder) context.push(`Placeholder: ${input.placeholder}`);
-    if (input.name) context.push(`Name: ${input.name}`);
-    if (input.id) context.push(`ID: ${input.id}`);
-    if (input.type) context.push(`Type: ${input.type}`);
-
     // Recursive search for the first parent that contains meaningful text
     let parentText = "";
     let current = input.parentElement;
     
     while (current && current !== document.body) {
-      // Use a clone to get text without the input element's own contribution if needed, 
-      // but innerText of parent usually captures the label/instruction accurately.
-      const text = current.innerText?.trim();
-      if (text && text.length > 0) {
-        parentText = text;
-        break;
+      // Use textContent as requested by user
+      const text = current.textContent?.trim();
+      
+      // Validation: Must not be empty, not just numbers, and not just special characters
+      if (text) {
+        // Regex explanation:
+        // [a-zA-Z\u4e00-\u9fa5] matches at least one letter (English or Chinese)
+        // This effectively excludes strings composed entirely of digits or special symbols.
+        const hasMeanigfulChar = /[a-zA-Z\u4e00-\u9fa5]/.test(text);
+        
+        if (hasMeanigfulChar) {
+          parentText = text;
+          break;
+        }
       }
       current = current.parentElement;
     }
 
     if (parentText) {
-      // Limit context length to avoid overwhelming the AI prompt
-      context.push(`Text Context: ${parentText.replace(/\s+/g, ' ').substring(0, 300)}`);
+      // Limit context length and clean up whitespace
+      return parentText.replace(/\s+/g, ' ').substring(0, 300);
     }
 
-    return context.join(' | ');
+    return "";
   }
 };

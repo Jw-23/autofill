@@ -4,7 +4,8 @@
  * {
  *   keyname: string (unique id, e.g., 'full_name'),
  *   description: string (e.g., 'User\'s legal full name'),
- *   value: string (e.g., 'John Doe')
+ *   value: string (e.g., 'John Doe'),
+ *   isSecret: boolean (if true, mask in UI)
  * }
  */
 

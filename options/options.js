@@ -17,7 +17,8 @@ const i18n = {
     editBtn: "编辑",
     editTitle: "编辑信息",
     cancelBtn: "取消",
-    updateBtn: "更新"
+    updateBtn: "更新",
+    labelSecret: "保密模式 (列表遮挡显示)"
   },
   en: {
     debugLogs: "Debug Logs",
@@ -34,7 +35,8 @@ const i18n = {
     editBtn: "Edit",
     editTitle: "Edit Info",
     cancelBtn: "Cancel",
-    updateBtn: "Update"
+    updateBtn: "Update",
+    labelSecret: "Confidential (Mask in list view)"
   }
 };
 
@@ -64,11 +66,12 @@ async function renderList() {
   info.forEach(item => {
     const div = document.createElement('div');
     div.className = 'info-item';
+    const displayValue = item.isSecret ? '••••••••' : item.value;
     div.innerHTML = `
       <div class="item-main">
-        <div class="item-key">${item.keyname}</div>
+        <div class="item-key">${item.keyname} ${item.isSecret ? '🔒' : ''}</div>
         <div class="item-desc">${item.description || 'No description'}</div>
-        <div class="item-val">${item.value}</div>
+        <div class="item-val">${displayValue}</div>
       </div>
       <div class="item-actions">
         <button class="edit-btn" data-key="${item.keyname}">${i18n[currentLang].editBtn}</button>
@@ -119,6 +122,7 @@ document.getElementById('add-btn').onclick = async () => {
   const keyname = document.getElementById('new-keyname').value.trim();
   const description = document.getElementById('new-description').value.trim();
   const value = document.getElementById('new-value').value.trim();
+  const isSecret = document.getElementById('new-is-secret').checked;
 
   if (!keyname || !value) {
     alert(i18n[currentLang].alertMissing);
@@ -126,10 +130,11 @@ document.getElementById('add-btn').onclick = async () => {
   }
 
   try {
-    await StorageManager.addPersonalInfo({ keyname, description, value });
+    await StorageManager.addPersonalInfo({ keyname, description, value, isSecret });
     document.getElementById('new-keyname').value = '';
     document.getElementById('new-description').value = '';
     document.getElementById('new-value').value = '';
+    document.getElementById('new-is-secret').checked = false;
     renderList();
   } catch (e) {
     alert(e.message);
@@ -143,6 +148,7 @@ function showEditModal(item) {
   document.getElementById('edit-keyname').value = item.keyname;
   document.getElementById('edit-description').value = item.description || '';
   document.getElementById('edit-value').value = item.value;
+  document.getElementById('edit-is-secret').checked = !!item.isSecret;
   modal.style.display = 'block';
 }
 
@@ -157,6 +163,7 @@ document.getElementById('save-edit').onclick = async () => {
   const keyname = document.getElementById('edit-keyname').value.trim();
   const description = document.getElementById('edit-description').value.trim();
   const value = document.getElementById('edit-value').value.trim();
+  const isSecret = document.getElementById('edit-is-secret').checked;
 
   if (!keyname || !value) {
     alert(i18n[currentLang].alertMissing);
@@ -164,7 +171,7 @@ document.getElementById('save-edit').onclick = async () => {
   }
 
   try {
-    await StorageManager.updatePersonalInfo(oldKey, { keyname, description, value });
+    await StorageManager.updatePersonalInfo(oldKey, { keyname, description, value, isSecret });
     hideEditModal();
     renderList();
   } catch (e) {

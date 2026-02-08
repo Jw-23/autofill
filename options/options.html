@@ -137,6 +137,10 @@
         <label data-i18n="labelValue">Value / 内容</label>
         <input type="text" id="new-value" placeholder="The actual content to fill">
       </div>
+      <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="new-is-secret" style="width:auto;">
+        <label for="new-is-secret" style="margin:0;" data-i18n="labelSecret">Confidential (Mask in list view)</label>
+      </div>
       <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry (保存)</button>
     </div>
 
@@ -160,6 +164,10 @@
       <div class="form-group">
         <label data-i18n="labelValue">Value</label>
         <input type="text" id="edit-value">
+      </div>
+      <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="edit-is-secret" style="width:auto;">
+        <label for="edit-is-secret" style="margin:0;" data-i18n="labelSecret">Confidential</label>
       </div>
       <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
         <button id="cancel-edit" class="lang-btn" data-i18n="cancelBtn">Cancel (取消)</button>

@@ -2,6 +2,7 @@
 
 const MainController = {
   isProcessing: false,
+  abortController: null,
 
   async init() {
     console.log('AI Autofill: Initialized');
@@ -15,10 +16,17 @@ const MainController = {
 
   async runAutofill() {
     if (this.isProcessing) {
-      console.warn('AI Autofill: Already processing, please wait.');
+      if (this.abortController) {
+        this.abortController.abort();
+      }
+      this.isProcessing = false;
+      console.log('AI Autofill: Stop signal sent.');
       return;
     }
+
     this.isProcessing = true;
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
 
     const isDebug = await StorageManager.getDebugSetting();
     const lang = await StorageManager.getLanguage();
@@ -41,8 +49,11 @@ const MainController = {
       if (isDebug) console.log(`AI Autofill: 发现 ${inputs.length} 个输入框`);
 
       for (const input of inputs) {
-        // Removed: if (input.value) continue; 
-        // Allowing re-fill to help user test and override matches.
+        // Check if aborted before processing each field
+        if (signal.aborted) {
+          if (isDebug) console.log('AI Autofill: Loop aborted.');
+          return;
+        }
 
         const context = InputDetector.getInputContext(input);
         
@@ -56,6 +67,9 @@ const MainController = {
 
         const matchKey = await AIManager.identifyField(context, personalInfo);
         
+        // Final check after AI response
+        if (signal.aborted) return;
+
         if (matchKey) {
           const infoItem = personalInfo.find(i => i.keyname === matchKey);
           if (infoItem) {
@@ -66,10 +80,13 @@ const MainController = {
         }
       }
     } catch (e) {
-      if (isDebug) console.error('AI Autofill error:', e);
+      if (!signal.aborted && isDebug) {
+        console.error('AI Autofill error:', e);
+      }
     } finally {
       this.isProcessing = false;
-      if (isDebug) console.log('AI Autofill: Finished.');
+      this.abortController = null;
+      if (isDebug) console.log('AI Autofill: Process finished or stopped.');
     }
   }
 };
