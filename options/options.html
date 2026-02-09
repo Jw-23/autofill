@@ -65,7 +65,10 @@
             <input type="checkbox" id="new-is-secret" style="width:auto;">
             <label for="new-is-secret" style="margin:0;" data-i18n="labelSecret">High Sensitivity</label>
           </div>
-          <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry</button>
+          <div style="display: flex; gap: 10px;">
+            <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry</button>
+            <button id="smart-add-btn" class="save-btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border:none;" data-i18n="smartAddBtn">✨ Smart Add</button>
+          </div>
         </div>
 
         <h2 data-i18n="savedInfo">Saved Information</h2>
@@ -167,11 +170,56 @@
           <p style="font-size:13px; color:#666;" data-i18n="securityDesc">Encryption protects your data with a master password.</p>
         </div>
 
-        <h2 style="margin-top: 30px;">AI Status</h2>
+        <h2 style="margin-top: 30px;" data-i18n="AISettingTitle">AI Settings</h2>
         <div class="card">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div data-i18n="aiLoadingDesc">Gemini Nano model status</div>
-            <button id="check-ai-btn" class="lang-btn" data-i18n="checkAI">Check AI Status</button>
+          <div class="setting-row">
+            <div style="font-weight: 500;" data-i18n="aiProvider">Provider</div>
+            <div style="display:flex; gap:15px; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:5px; cursor:pointer;">
+                <input type="radio" name="ai-provider" value="local" checked> <span data-i18n="aiProviderLocal">Local (Gemini Nano)</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:5px; cursor:pointer;">
+                <input type="radio" name="ai-provider" value="remote"> <span data-i18n="aiProviderRemote">Remote (OpenAI API)</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Local Options -->
+          <div id="ai-local-options" style="margin-top:15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; background:#f9f9f9; padding:10px; border-radius:4px;">
+              <div data-i18n="aiLoadingDesc">Gemini Nano model status</div>
+              <button id="check-ai-btn" class="lang-btn" data-i18n="checkAI">Check Status</button>
+            </div>
+          </div>
+
+          <!-- Remote Options -->
+          <div id="ai-remote-options" style="display:none; margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
+            <p style="font-size:12px; color:#e07a5f; margin-bottom:15px; line-height:1.5;" data-i18n="aiRemoteDesc">Privacy Note...</p>
+            <div class="form-group">
+              <label data-i18n="aiBaseUrl">API Base URL</label>
+              <input type="text" id="api-url" placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+            </div>
+            <div class="form-group">
+              <label data-i18n="aiKey">API Key</label>
+              <input type="password" id="api-key" placeholder="sk-...">
+            </div>
+            <div style="display:flex; gap:10px; align-items:flex-end;">
+              <div class="form-group" style="flex:1; margin-bottom:0;">
+                <label data-i18n="aiModel">Model</label>
+                <select id="api-model" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; height:36px;">
+                  <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                  <option value="gpt-4">gpt-4</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                </select>
+              </div>
+              <button id="fetch-models-btn" class="lang-btn" style="height:36px;" data-i18n="aiFetchModels">Fetch Models</button>
+            </div>
+            <div id="fetch-status" style="margin-top:8px; font-size:12px; height:15px;"></div>
+          </div>
+          
+          <div style="display:flex; justify-content:flex-end; margin-top:20px;">
+            <button id="save-ai-settings" class="save-btn" data-i18n="saveAiSettings">Save AI Settings</button>
           </div>
         </div>
       </section>
@@ -259,6 +307,31 @@
         <div id="ai-progress-bar" style="width:0%; height:100%; background:var(--primary-color); transition: width 0.3s;"></div>
       </div>
       <p id="ai-progress-text">0%</p>
+    </div>
+  </div>
+
+  <!-- Smart Add Modal -->
+  <div id="smart-add-modal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+      <span class="close" id="smart-add-close">&times;</span>
+      <h2 data-i18n="smartAddModalTitle">AI Smart Add</h2>
+      <p data-i18n="smartAddDesc" style="color: #666; margin-bottom: 10px;"></p>
+      
+      <textarea id="smart-add-input" rows="5" style="width:100%; padding:10px; font-family:inherit; border:1px solid #ccc; border-radius:4px; resize:vertical;" placeholder=""></textarea>
+      
+      <div id="smart-add-preview-area" style="display:none; margin-top: 15px;">
+         <h4 data-i18n="smartAddPreviewTitle" style="margin-bottom:10px;">Preview</h4>
+         <div id="smart-add-list" style="max-height: 250px; overflow-y: auto; border: 1px solid #eee; padding: 10px; background: #fafafa; border-radius: 4px;">
+           <!-- Generated items will go here -->
+         </div>
+         <div style="text-align: right; margin-top: 10px;">
+             <button id="smart-add-apply-btn" class="save-btn" data-i18n="smartAddConfirm">Add Selection</button>
+         </div>
+      </div>
+
+      <div style="text-align: right; margin-top: 15px;" id="smart-add-actions">
+        <button id="smart-add-submit-btn" class="save-btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" data-i18n="smartAddGenerate">Generate</button>
+      </div>
     </div>
   </div>
 

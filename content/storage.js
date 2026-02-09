@@ -225,6 +225,33 @@ const StorageManager = {
     });
   },
 
+  // --- AI Settings (Provider, Custom API, etc.) ---
+  async getAISettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['aiProvider', 'remoteApiUrl', 'remoteApiKey', 'remoteModel'], (result) => {
+        resolve({
+          provider: result.aiProvider || 'local', // 'local' | 'remote'
+          apiUrl: result.remoteApiUrl || 'https://api.openai.com/v1',
+          apiKey: result.remoteApiKey || '',
+          model: result.remoteModel || 'gpt-3.5-turbo'
+        });
+      });
+    });
+  },
+
+  async setAISettings(settings) {
+    // settings: { provider, apiUrl, apiKey, model }
+    const update = {};
+    if (settings.provider !== undefined) update.aiProvider = settings.provider;
+    if (settings.apiUrl !== undefined) update.remoteApiUrl = settings.apiUrl;
+    if (settings.apiKey !== undefined) update.remoteApiKey = settings.apiKey;
+    if (settings.model !== undefined) update.remoteModel = settings.model;
+
+    return new Promise((resolve) => {
+      chrome.storage.local.set(update, resolve);
+    });
+  },
+
   /**
    * Exports personal info as a JSON string.
    * If encrypted, exports the encrypted vault along with its keys.

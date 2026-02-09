@@ -4,6 +4,7 @@ import { initVault, renderList } from './modules/vault.js';
 import { initWhitelist, renderWhitelist } from './modules/whitelist.js';
 import { initSettings } from './modules/settings.js';
 import { checkAndDownloadAI } from './modules/ui.js';
+import { initSmartAdd } from './modules/smart_add.js';
 
 /**
  * Main entry point for the options page.
@@ -22,6 +23,7 @@ async function init() {
   initVault();
   initWhitelist();
   initSettings();
+  initSmartAdd();
   
   // 3. Perform background checks
   checkAndDownloadAI();

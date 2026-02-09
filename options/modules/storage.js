@@ -195,6 +195,52 @@ export const VaultStorage = {
     });
   },
 
+  // --- AI Settings (Provider, Custom API, etc.) ---
+  async getAISettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['aiProvider', 'remoteApiUrl', 'remoteApiKey', 'remoteModel'], (result) => {
+        resolve({
+          provider: result.aiProvider || 'local', // 'local' | 'remote'
+          apiUrl: result.remoteApiUrl || 'https://api.openai.com/v1',
+          apiKey: result.remoteApiKey || '',
+          model: result.remoteModel || 'gpt-4.1'
+        });
+      });
+    });
+  },
+
+  async setAISettings(settings) {
+    // settings: { provider, apiUrl, apiKey, model }
+    const update = {};
+    if (settings.provider !== undefined) update.aiProvider = settings.provider;
+    if (settings.apiUrl !== undefined) update.remoteApiUrl = settings.apiUrl;
+    if (settings.apiKey !== undefined) update.remoteApiKey = settings.apiKey;
+    if (settings.model !== undefined) update.remoteModel = settings.model;
+
+    return new Promise((resolve) => {
+      chrome.storage.local.set(update, resolve);
+    });
+  },
+
+  async getCachedModels(apiUrl) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['aiModelCache'], (result) => {
+        const cache = result.aiModelCache || {};
+        resolve(cache[apiUrl] || []);
+      });
+    });
+  },
+
+  async setCachedModels(apiUrl, models) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['aiModelCache'], (result) => {
+        const cache = result.aiModelCache || {};
+        cache[apiUrl] = models;
+        chrome.storage.local.set({ aiModelCache: cache }, resolve);
+      });
+    });
+  },
+
   async exportPersonalInfo() {
     const isEncrypted = await this.isEncryptionEnabled();
     if (isEncrypted && !this._dataKey) throw new Error('Storage is locked');

@@ -32,6 +32,10 @@ const MainController = {
     
     const oneByOne = await StorageManager.getOneByOneSetting();
     const useCluster = await StorageManager.getClusterSetting();
+    
+    // Log AI Provider status
+    const aiSettings = await StorageManager.getAISettings();
+    if (isDebug) console.log(`MainController: AI Provider -> ${aiSettings.provider} ${aiSettings.provider === 'remote' ? `(Model: ${aiSettings.model})` : ''}`);
 
     const lang = await StorageManager.getLanguage();
     const whitelist = await StorageManager.getWhitelist();

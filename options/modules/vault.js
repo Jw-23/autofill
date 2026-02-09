@@ -7,7 +7,8 @@ export async function renderList() {
   const unlockCard = document.getElementById('unlock-card');
   const addForm = document.getElementById('add-form');
   
-  infoList.innerHTML = '';
+  // Hold current scroll position
+  const currentScrollY = window.scrollY;
   
   let info = [];
   try {
@@ -18,10 +19,14 @@ export async function renderList() {
     if (e.message.indexOf('locked') !== -1) {
       unlockCard.style.display = 'block';
       addForm.style.display = 'none';
+      infoList.innerHTML = ''; // Clear only if locked
       return;
     }
     console.error(e);
   }
+
+  // Clear list only after we have data to minimize layout shift
+  infoList.innerHTML = '';
 
   if (info.length === 0) {
     infoList.innerHTML = `<div style="padding:20px; color:#999; text-align:center;">${i18n[currentLang].noData}</div>`;
@@ -60,9 +65,11 @@ export async function renderList() {
 
   document.querySelectorAll('.delete-btn').forEach(btn => {
     btn.onclick = async (e) => {
+      const scrollPos = window.scrollY; // Capture scroll position
       const key = e.target.getAttribute('data-key');
       await VaultStorage.deletePersonalInfo(key);
-      renderList();
+      await renderList();
+      window.scrollTo(0, scrollPos); // Restore scroll position
     };
   });
 }

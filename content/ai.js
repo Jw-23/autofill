@@ -69,6 +69,68 @@ const AIManager = {
     }
   },
 
+  async identifyingFieldsBatchRemote(fields, availableKeys, settings, isDebug) {
+    const { apiUrl, apiKey, model } = settings;
+    
+    // Construct System Prompt
+    const systemPrompt = `You are a precise form-filling assistant (Autofill AI).
+Your task is to analyze form fields and map them to the best matching key from the user's personal data vault.
+
+[Personal Data Vault]:
+${JSON.stringify(availableKeys.map(k => ({ key: k.keyname, desc: k.description })), null, 2)}
+
+[Matching Rules]:
+1. Return a JSON object with a "matches" array.
+2. Each match: { "inputId": <int>, "matchedKey": "<keyname>" }.
+3. "matchedKey" MUST be one of the keys from the vault.
+4. If a field matches nothing with high confidence (>90%), omit it or do not include a matchedKey.
+5. STRICTLY output valid JSON only. No markdown formatting.`;
+
+    // Construct User Prompt
+    // Limit context length if needed, but for batch it should be okay.
+    // Format: "FieldID: <id>, Context: <context>"
+    const fieldDescriptions = fields.map(f => `FieldID: ${f.id}\nContext: ${f.context}`).join('\n---\n');
+    const userPrompt = `Analyze these form fields and find matches:\n\n${fieldDescriptions}`;
+
+    if (isDebug) console.log('AIManager [Remote]: Sending request to background...', { model, fieldCount: fields.length });
+
+    try {
+        const response = await chrome.runtime.sendMessage({
+            action: 'ai-analyze',
+            apiUrl, 
+            apiKey,
+            model,
+            systemPrompt,
+            userPrompt
+        });
+
+        if (response.error) {
+            console.error('AIManager [Remote]: API Error:', response.error);
+            return [];
+        }
+
+        // Expected result is a JSON string or object
+        let content = response.result;
+        if (typeof content === 'string') {
+            // Cleanup markdown code blocks if present
+            content = content.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+            try {
+                const parsed = JSON.parse(content);
+                if (isDebug) console.log('AIManager [Remote]: Parsed response:', parsed);
+                return parsed.matches || [];
+            } catch (e) {
+                console.error('AIManager [Remote]: Failed to parse JSON response', content);
+                return [];
+            }
+        }
+        return [];
+
+    } catch (e) {
+        console.error('AIManager [Remote]: Transport Error:', e);
+        return [];
+    }
+  },
+
   /**
    * Identifies matches for multiple fields in a single AI call.
    * @param {Array} fields - Array of {id, context}
@@ -77,6 +139,17 @@ const AIManager = {
    * @returns {Promise<Array>} - Array of {inputId, matchedKey}
    */
   async identifyFieldsBatch(fields, availableKeys, isDebug = false) {
+    // Check Provider Setting
+    const settings = await StorageManager.getAISettings();
+    if (settings.provider === 'remote') {
+        if (!settings.apiKey) {
+            console.warn('AIManager: Remote provider selected but no API Key configured.');
+            return [];
+        }
+        return this.identifyingFieldsBatchRemote(fields, availableKeys, settings, isDebug);
+    }
+
+    // Default: Local Gemini Nano
     const baseSession = await this.getSession();
     if (!baseSession) return [];
 

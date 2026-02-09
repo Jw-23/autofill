@@ -47,6 +47,138 @@ export async function initSettings() {
     await updateLanguageUI(renderList);
   };
 
+  // --- AI Settings Logic (New) ---
+  const aiSettings = await VaultStorage.getAISettings();
+  const providerRadios = document.getElementsByName('ai-provider');
+  const localSection = document.getElementById('ai-local-options');
+  const remoteSection = document.getElementById('ai-remote-options');
+  
+  const apiUrlInput = document.getElementById('api-url');
+  const apiKeyInput = document.getElementById('api-key');
+  const apiModelSelect = document.getElementById('api-model');
+  const saveAiBtn = document.getElementById('save-ai-settings');
+  const fetchModelsBtn = document.getElementById('fetch-models-btn');
+  const fetchStatus = document.getElementById('fetch-status');
+
+  // Load Initial Values
+  for (const radio of providerRadios) {
+    if (radio.value === aiSettings.provider) radio.checked = true;
+    radio.onchange = () => toggleAISections(radio.value);
+  }
+  apiUrlInput.value = aiSettings.apiUrl;
+  apiKeyInput.value = aiSettings.apiKey;
+  
+  // Try to load cached models for this API URL
+  try {
+      const cachedModels = await VaultStorage.getCachedModels(aiSettings.apiUrl);
+      if (cachedModels && cachedModels.length > 0) {
+          apiModelSelect.innerHTML = '';
+          cachedModels.forEach(mId => {
+              const opt = document.createElement('option');
+              opt.value = mId;
+              opt.text = mId;
+              apiModelSelect.appendChild(opt);
+          });
+      }
+  } catch (e) { console.warn('Failed to load cached models', e); }
+
+  // Custom model might not be in the default list (or cached list), add it if needed
+  if (![...apiModelSelect.options].some(o => o.value === aiSettings.model)) {
+      const opt = document.createElement('option');
+      opt.value = aiSettings.model;
+      opt.text = aiSettings.model;
+      apiModelSelect.add(opt);
+  }
+  apiModelSelect.value = aiSettings.model;
+
+  toggleAISections(aiSettings.provider);
+
+  function toggleAISections(provider) {
+    if (provider === 'local') {
+      localSection.style.display = 'block';
+      remoteSection.style.display = 'none';
+      checkAndDownloadAI(); // Check status when switching to local
+    } else {
+      localSection.style.display = 'none';
+      remoteSection.style.display = 'block';
+    }
+  }
+
+  saveAiBtn.onclick = async () => {
+    const provider = document.querySelector('input[name="ai-provider"]:checked').value;
+    await VaultStorage.setAISettings({
+      provider,
+      apiUrl: apiUrlInput.value.trim(),
+      apiKey: apiKeyInput.value.trim(),
+      model: apiModelSelect.value
+    });
+    
+    const msg = currentLang === 'zh' ? 'AI 设置已保存' : 'AI Settings Saved';
+    saveAiBtn.textContent = msg;
+    saveAiBtn.style.backgroundColor = '#1aa260';
+    setTimeout(() => {
+        saveAiBtn.textContent = i18n[currentLang].saveAiSettings;
+        saveAiBtn.style.backgroundColor = '';
+    }, 2000);
+  };
+
+  fetchModelsBtn.onclick = async () => {
+    const apiUrl = apiUrlInput.value.trim();
+    const apiKey = apiKeyInput.value.trim();
+    
+    if (!apiUrl || !apiKey) {
+      fetchStatus.textContent = i18n[currentLang].enterKeyUrl;
+      fetchStatus.style.color = 'red';
+      return;
+    }
+
+    fetchStatus.textContent = currentLang === 'zh' ? '正在获取...' : 'Fetching...';
+    fetchStatus.style.color = '#666';
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'fetch-models',
+        apiUrl,
+        apiKey
+      });
+
+      if (response && response.error) {
+        throw new Error(response.error);
+      }
+
+      if (response && response.models) {
+        // Clear and populate select
+        apiModelSelect.innerHTML = '';
+        const sortedModels = response.models.sort((a,b) => a.id.localeCompare(b.id));
+        
+        sortedModels.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.text = m.id;
+          apiModelSelect.appendChild(opt);
+        });
+        
+        // Select logic: try to keep current, else valid default, else first
+        if (sortedModels.some(m => m.id === aiSettings.model)) {
+            apiModelSelect.value = aiSettings.model;
+        } else if (sortedModels.some(m => m.id === 'gpt-3.5-turbo')) {
+            apiModelSelect.value = 'gpt-3.5-turbo';
+        }
+
+        // --- Persistence of Fetched Models ---
+        // Save just the IDs (or simplified objects) to cache keyed by API URL
+        const simpleModelList = sortedModels.map(m => m.id);
+        await VaultStorage.setCachedModels(apiUrl, simpleModelList);
+
+        fetchStatus.textContent = `${i18n[currentLang].fetchSuccess} (${sortedModels.length})`;
+        fetchStatus.style.color = 'green';
+      }
+    } catch (e) {
+      fetchStatus.textContent = `${i18n[currentLang].fetchError}: ${e.message}`;
+      fetchStatus.style.color = 'red';
+    }
+  };
+
   // Data Management Logic
   const exportBtn = document.getElementById('export-btn');
   const importBtn = document.getElementById('import-btn');
