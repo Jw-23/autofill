@@ -246,31 +246,31 @@ const MainController = {
         // Force log to confirm entry
         console.log('MainController: Cluster mode started (isDebug check skipped for diagnosis)');
 
-        // --- 1. Bubbling Phase: Find Cluster Roots ---
-        // Map each input index to its "Owner" element. Start with direct parent.
-        const inputOwners = new Map(); // index -> HTMLElement
+        // --- 1. Bubbling Phase: Fine-Grained Clustering ---
+        // Algorithm:
+        // 1. Start with direct parents of inputs.
+        // 2. Bubble up ONLY if the parent node is composed entirely of "Atomic" children.
+        //    (An Atomic child contains at most 1 visible input).
+        // 3. If a parent has any child with >1 inputs, it implies that child is a cluster itself, 
+        //    so grouping at the parent level would be too coarse.
+        
+        const inputOwners = new Map(); 
         inputs.forEach((input, idx) => inputOwners.set(idx, input.parentElement));
 
-        const isClusterBoundary = (el) => {
-          if (!el) return true; // Stop at null
-          if (['BODY', 'HTML'].includes(el.tagName)) return true; // Hard stop
-          
-          // Semantic Boundaries
-          if (['SECTION', 'FORM', 'FIELDSET', 'ARTICLE', 'MAIN'].includes(el.tagName)) return true;
-
-          // Header Boundary: A generic DIV acts as a section if it has a direct header child
-          // We use explicit loop for performance instead of querySelector
-          for (const child of el.children) {
-             if (/^H[1-6]$/.test(child.tagName) || child.tagName === 'LEGEND' || child.tagName === 'CAPTION') {
-                return true;
-             }
-          }
-          return false;
+        // Helper: Count how many of our target inputs are contained within a given DOM element
+        const getInputCountInElement = (el) => {
+            let count = 0;
+            for (const input of inputs) {
+                if (el === input || el.contains(input)) {
+                    count++;
+                }
+            }
+            return count;
         };
 
         let changed = true;
         let iterations = 0;
-        const MAX_ITERATIONS = 13; // Allow deeper bubbling to find sections
+        const MAX_ITERATIONS = 20;
 
         while (changed && iterations < MAX_ITERATIONS) {
           changed = false;
@@ -283,19 +283,22 @@ const MainController = {
           }
 
           for (const [owner, idxs] of ownerGroups) {
-             // If we hit a boundary, we stop bubbling for this group
-             if (isClusterBoundary(owner)) continue;
+             const parent = owner.parentElement;
+             if (!parent || ['BODY', 'HTML'].includes(parent.tagName)) continue;
 
-             // Logic: If this node is NOT a boundary, and has a parent, we TRY to bubble up.
-             // But we should only bubble if strictly necessary?
-             // Actually, the user WANTS to bubble up to the Section. 
-             // So if we are at `div.form-row` (not boundary), we bubble to `section`.
-             
-             if (owner.parentElement) {
-                // Heuristic: If this node has siblings that strictly contain other inputs,
-                // merging up might create a better cluster.
-                // But simplified logic: Just bubble until Boundary.
-                idxs.forEach(idx => inputOwners.set(idx, owner.parentElement));
+             // Check "Fine-Grained" Condition:
+             // Parent is a valid cluster root ONLY if all its children are "Atomic" (<= 1 input).
+             let parentIsValid = true;
+             for (const child of parent.children) {
+                 if (getInputCountInElement(child) > 1) {
+                     parentIsValid = false;
+                     break;
+                 }
+             }
+
+             if (parentIsValid) {
+                // Safe to bubble up
+                idxs.forEach(idx => inputOwners.set(idx, parent));
                 changed = true;
              }
           }
