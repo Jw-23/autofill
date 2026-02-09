@@ -1,0 +1,179 @@
+// options/modules/i18n.js
+import { VaultStorage } from './storage.js';
+
+export const i18n = {
+  zh: {
+    debugLogs: "调试日志",
+    addNewInfo: "添加新信息",
+    labelKeyname: "英文键名",
+    labelDesc: "详细描述",
+    labelValue: "填写内容",
+    saveBtn: "保存条目",
+    savedInfo: "已保存的信息",
+    noData: "暂无数据",
+    deleteBtn: "删除",
+    alertMissing: "键名和内容必填",
+    configAlert: "请先在扩展选项中配置个人信息。",
+    editBtn: "编辑",
+    editTitle: "编辑信息",
+    cancelBtn: "取消",
+    updateBtn: "更新",
+    labelSecret: "高敏感数据 (需二次确认)",
+    labelFakeValue: "干扰内容 (非白名单时使用)",
+    whitelistTitle: "信任网站 (白名单)",
+    whitelistDesc: "只有在这些网站中，高敏感数据才会填写真实值。支持 * 模糊匹配。",
+    addBtn: "添加",
+    unlockTitle: "解锁仓库",
+    unlockDesc: "输入主密码以访问您的数据。",
+    unlockBtn: "解锁",
+    securityTitle: "安全设置",
+    newMasterPass: "主密码",
+    confirmMasterPass: "确认主密码",
+    enableEncryption: "启用加密",
+    securityStatusOn: "状态：已加密 ✅",
+    securityStatusOff: "状态：未加密 🔓",
+    closeBtn: "关闭",
+    passReq: "主密码不能为空",
+    passMatchError: "两次输入的密码不一致",
+    resetData: "销毁数据并重置",
+    resetConfirm: "确定要销毁所有数据并重置吗？此操作无法撤销！",
+    enableConfirm: "一旦启用，每次填写都需输入密码。确定吗？",
+    encDone: "加密已启用！",
+    oneByOne: "逐个匹配模式",
+    clusterMode: "集群识别模式",
+    dataManagement: "数据管理",
+    dataMgmtDesc: "备份或恢复您的个人信息。已加密的数据在导出和导入时仍保持加密状态。",
+    exportBtn: "导出数据",
+    importBtn: "导入数据",
+    importSuccess: "导入数据成功！",
+    exportFailed: "导出失败：",
+    importFailed: "导入失败：",
+    importPassReq: "此备份使用不同的加密密钥。请输入该备份导出时的仓库密码（主密码）：",
+    unlockToImport: "仓库当前已重锁，请输入主密码解锁后进行导入：",
+    invalidPass: "密码错误，无法解锁。",
+    vaultMenu: "仓库",
+    whitelistMenu: "信任网站",
+    dataMgmtMenu: "数据管理",
+    settingsMenu: "设置",
+    settingsTitle: "设置",
+    oneByOneDesc: "逐个显示推荐项，而不是一次性全部填充。",
+    clusterModeDesc: "启用智能集群识别算法（Beta），按页面结构分组识别。",
+    debugLogsDesc: "在控制台显示详细的运行日志。",
+    securityDesc: "使用主密码加密您的敏感数据，确保即使他人能访问浏览器存储也无法直接查看。",
+    securityManageBtn: "安全配置",
+    formatHelpTitle: "如何导入自定义 JSON 文件？",
+    formatPlainTitle: "未加密 JSON 格式：",
+    formatDesc: "您可以手动创建或编辑未加密的文件以便批量导入。如果当前仓库已启用加密，导入的明文数据将被自动加密。",
+    aiLoadingTitle: "正在初始化 AI 模型",
+    aiLoadingDesc: "由于 Gemini Nano 模型较大 (约 2-3GB)，首次启用可能需要下载。请保持浏览器开启。",
+    checkAI: "检查 AI 现状",
+    aiReady: "AI 模型已就绪 ✅",
+    aiUnavailable: "AI 目前不可用 (可能是设备不支持或配置错误)",
+    aiNotSupported: "浏览器版本可能不支持 Gemini Nano，请确保使用 Chrome Canary 或 Dev (128+) 并开启相关 Flag。",
+    confirmBtn: "确定"
+  },
+  en: {
+    debugLogs: "Debug Logs",
+    addNewInfo: "Add New Info",
+    labelKeyname: "Keyname (e.g. phone_number)",
+    labelDesc: "Description (Help AI match)",
+    labelValue: "Value",
+    saveBtn: "Add Entry",
+    savedInfo: "Saved Information",
+    noData: "No data saved.",
+    deleteBtn: "Delete",
+    alertMissing: "Keyname and Value are required",
+    configAlert: "Please configure your personal information in the extension options first.",
+    editBtn: "Edit",
+    editTitle: "Edit Info",
+    cancelBtn: "Cancel",
+    updateBtn: "Update",
+    labelSecret: "High Sensitivity (Confirm before fill, mask in list)",
+    labelFakeValue: "Fake Value (Filled when site is not whitelisted)",
+    whitelistTitle: "Trusted Websites (Whitelist)",
+    whitelistDesc: "Real values for high-sensitivity data are only filled on these sites. Use * for wildcards (e.g. *.google.com).",
+    addBtn: "Add",
+    unlockTitle: "Unlock Vault",
+    unlockDesc: "Enter master password to access your data.",
+    unlockBtn: "Unlock",
+    securityTitle: "Security Settings",
+    newMasterPass: "Set New Master Password",
+    confirmMasterPass: "Confirm Master Password",
+    enableEncryption: "Enable Encryption",
+    securityStatusOn: "Status: Encryption Enabled ✅",
+    securityStatusOff: "Status: Not Encrypted (Enable below) 🔓",
+    closeBtn: "Close",
+    passReq: "Master password cannot be empty",
+    passMatchError: "Passwords do not match",
+    resetData: "Destroy All Data & Reset Security",
+    resetConfirm: "Are you sure you want to destroy all data and reset all security settings? This action cannot be undone!",
+    enableConfirm: "Once enabled, you will need your password to fill forms. Existing data will be encrypted. Continue?",
+    encDone: "Encryption enabled!",
+    oneByOne: "One-by-one Mode",
+    clusterMode: "Smart Cluster Mode",
+    dataManagement: "Data Management",
+    dataMgmtDesc: "Backup or restore your personal information. Encrypted data remains protected during export/import.",
+    exportBtn: "Export Data",
+    importBtn: "Import Data",
+    importSuccess: "Import successful!",
+    exportFailed: "Export failed: ",
+    importFailed: "Import failed: ",
+    importPassReq: "This backup uses a different key. Please enter the master password used when this backup was created:",
+    unlockToImport: "Vault is locked. Please enter master password to unlock and import:",
+    invalidPass: "Invalid password, unable to unlock.",
+    vaultMenu: "Vault",
+    whitelistMenu: "Whitelist",
+    dataMgmtMenu: "Data Management",
+    settingsMenu: "Settings",
+    settingsTitle: "Settings",
+    oneByOneDesc: "Show suggestions one by one instead of filling all at once.",
+    clusterModeDesc: "Identify groups of fields based on DOM structure (Beta).",
+    debugLogsDesc: "Show detailed operation logs in the console.",
+    securityDesc: "Encrypt your sensitive data with a master password to ensure privacy.",
+    securityManageBtn: "Manage Security",
+    formatHelpTitle: "How to import custom JSON?",
+    formatPlainTitle: "Unencrypted JSON Format:",
+    formatDesc: "You can manually create or edit unencrypted files for bulk import. If encryption is enabled, imported plain data will be automatically encrypted.",
+    aiLoadingTitle: "Initializing AI Model",
+    aiLoadingDesc: "Gemini Nano is a large model (~2GB) and may require a one-time download. Please keep the browser open.",
+    checkAI: "Check AI Status",
+    aiReady: "AI Model is Ready ✅",
+    aiUnavailable: "AI is currently unavailable (Device might not be supported)",
+    aiNotSupported: "Gemini Nano is not supported in this browser version. Use Chrome Canary/Dev (128+) and enable AI Flags.",
+    confirmBtn: "Confirm"
+  }
+};
+
+export let currentLang = 'zh';
+
+export async function updateLanguageUI(callback) {
+  currentLang = await VaultStorage.getLanguage();
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (i18n[currentLang][key]) {
+      el.innerText = i18n[currentLang][key];
+    }
+  });
+  
+  // Also update placeholders
+  const unlockPass = document.getElementById('unlock-pass');
+  const promptInput = document.getElementById('prompt-input');
+  if (currentLang === 'zh') {
+    unlockPass?.setAttribute('placeholder', '密码');
+    promptInput?.setAttribute('placeholder', '输入内容...');
+  } else {
+    unlockPass?.setAttribute('placeholder', 'Password');
+    promptInput?.setAttribute('placeholder', 'Enter content...');
+  }
+  
+  // Update security status texts manually as they are dynamic
+  const isEnc = await VaultStorage.isEncryptionEnabled();
+  const statusDisplay = document.getElementById('security-status-display');
+  const statusModal = document.getElementById('security-status');
+  const statusText = isEnc ? i18n[currentLang].securityStatusOn : i18n[currentLang].securityStatusOff;
+  
+  if (statusDisplay) statusDisplay.innerText = statusText;
+  if (statusModal) statusModal.innerText = statusText;
+
+  if (callback) callback();
+}

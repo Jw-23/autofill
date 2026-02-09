@@ -1,12 +1,9 @@
-// content/crypto.js
+// options/modules/crypto.js
 
-const CryptoManager = {
+export const VaultCrypto = {
   ALGO_NAME: 'AES-GCM',
   ITERATIONS: 100000,
 
-  /**
-   * Derives a cryptographic key from a password.
-   */
   async deriveMasterKey(password, salt) {
     const encoder = new TextEncoder();
     const passwordKey = await crypto.subtle.importKey(
@@ -63,9 +60,6 @@ const CryptoManager = {
     }
   },
 
-  /**
-   * Generates a random AES key (The "Keychain")
-   */
   async generateDataKey() {
     return crypto.subtle.generateKey(
       { name: this.ALGO_NAME, length: 256 },
@@ -74,17 +68,11 @@ const CryptoManager = {
     );
   },
 
-  /**
-   * Exports a key to a hex string for storage (after encryption)
-   */
   async exportKey(key) {
     const exported = await crypto.subtle.exportKey('raw', key);
     return this.bufferToHex(exported);
   },
 
-  /**
-   * Imports a key from a raw buffer
-   */
   async importKey(rawBuffer) {
     return crypto.subtle.importKey(
       'raw',
@@ -109,5 +97,3 @@ const CryptoManager = {
     return bytes.buffer;
   }
 };
-
-window.ExtensionCryptoManager = CryptoManager;

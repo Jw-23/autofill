@@ -3,178 +3,179 @@
 <head>
   <meta charset="utf-8">
   <title>AI Autofill Settings</title>
-  <style>
-    :root {
-      --primary-color: #4285f4;
-      --danger-color: #d93025;
-      --bg-color: #f8f9fa;
-      --card-bg: #ffffff;
-    }
-    body { 
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-      padding: 0; 
-      margin: 0; 
-      background-color: var(--bg-color);
-      color: #3c4043;
-    }
-    .header {
-      background-color: var(--card-bg);
-      padding: 20px 40px;
-      border-bottom: 1px solid #dadce0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .container {
-      max-width: 800px;
-      margin: 40px auto;
-      padding: 0 20px;
-    }
-    .card {
-      background: var(--card-bg);
-      border-radius: 8px;
-      padding: 24px;
-      box-shadow: 0 1px 3px rgba(60,64,67,0.3);
-      margin-bottom: 24px;
-    }
-    h1, h2, h3 { margin-top: 0; }
-    .form-group { margin-bottom: 20px; }
-    label { 
-      display: block; 
-      margin-bottom: 8px; 
-      font-weight: 500; 
-      font-size: 14px;
-    }
-    input, textarea { 
-      width: 100%; 
-      padding: 10px; 
-      box-sizing: border-box; 
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    input:focus {
-      outline: none;
-      border-color: var(--primary-color);
-      box-shadow: 0 0 0 2px rgba(66,133,244,0.1);
-    }
-    button { 
-      padding: 10px 20px; 
-      cursor: pointer; 
-      border: none;
-      border-radius: 4px;
-      font-weight: 500;
-      transition: background 0.2s;
-    }
-    .save-btn { background-color: var(--primary-color); color: white; }
-    .save-btn:hover { background-color: #357abd; }
-    .delete-btn { background-color: transparent; color: var(--danger-color); }
-    .delete-btn:hover { background-color: #fce8e6; }
-    
-    .info-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      padding: 16px;
-      border-bottom: 1px solid #f1f3f4;
-    }
-    .info-item:last-child { border-bottom: none; }
-    .item-main { flex: 1; }
-    .item-key { font-weight: bold; font-size: 16px; color: var(--primary-color); margin-bottom: 4px; }
-    .item-desc { font-size: 13px; color: #5f6368; font-style: italic; }
-    .item-val { margin-top: 8px; font-family: monospace; background: #fdfdfd; padding: 4px; border: 1px solid #eee; }
-    .item-actions { display: flex; gap: 8px; }
-    .edit-btn { background-color: transparent; color: var(--primary-color); }
-    .edit-btn:hover { background-color: #e8f0fe; }
-    
-    /* Modal styles */
-    .modal {
-      display: none;
-      position: fixed;
-      z-index: 1000;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0,0,0,0.5);
-    }
-    .modal-content {
-      background-color: white;
-      margin: 10% auto;
-      padding: 24px;
-      border-radius: 8px;
-      max-width: 500px;
-    }
-  </style>
+  <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <div class="header">
-    <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size: 24px;">🤖</span>
-      <h1 style="margin:0; font-size: 22px;">AI Autofill</h1>
-    </div>
-    <div class="settings-row">
-      <button id="lang-toggle" class="lang-btn">English / 中文</button>
-      <button id="security-btn" class="lang-btn" style="color:var(--danger-color);">🔒 Security (安全)</button>
-      <!-- 隐藏调试按钮 -->
-      <div style="display:flex; align-items:center; gap:15px;">
-        <div style="display:flex; align-items:center; gap:5px;">
-          <input type="checkbox" id="one-by-one-toggle" style="width:auto;">
-          <label for="one-by-one-toggle" style="margin:0;" data-i18n="oneByOne">One-by-one mode (逐个匹配)</label>
-        </div>
-        <div style="display:flex; align-items:center; gap:5px;">
-          <input type="checkbox" id="debug-toggle" style="width:auto;">
-          <label for="debug-toggle" style="margin:0;" data-i18n="debugLogs">Debug Logs (调试日志)</label>
-        </div>
-      </div>
-    </div>
-  </div>
+  <button class="menu-toggle" id="menu-toggle">☰</button>
   
-  <div class="container">
-    <div id="unlock-card" class="card" style="display:none; text-align:center;">
-      <h3 data-i18n="unlockTitle">Unlock Vault</h3>
-      <p data-i18n="unlockDesc">Enter master password to access your data.</p>
-      <input type="password" id="unlock-pass" placeholder="Password" style="margin-bottom:15px;">
-      <button id="unlock-btn" class="save-btn" data-i18n="unlockBtn">Unlock</button>
-    </div>
+  <div class="app-container">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span style="font-size: 24px;">🤖</span>
+        <h1 style="margin:0; font-size: 20px;">AI Autofill</h1>
+      </div>
+      
+      <div class="nav-item active" data-section="vault">
+        <span>📦</span> <span data-i18n="vaultMenu">Vault</span>
+      </div>
+      <div class="nav-item" data-section="whitelist">
+        <span>🛡️</span> <span data-i18n="whitelistMenu">Whitelist</span>
+      </div>
+      <div class="nav-item" data-section="data-mgmt">
+        <span>💾</span> <span data-i18n="dataMgmtMenu">Data Management</span>
+      </div>
+      <div class="nav-item" data-section="settings">
+        <span>⚙️</span> <span data-i18n="settingsMenu">Settings</span>
+      </div>
 
-    <div id="add-form" class="card">
-      <h3 data-i18n="addNewInfo">Add New Info</h3>
-      <div class="form-group">
-        <label data-i18n="labelKeyname">Keyname</label>
-        <input type="text" id="new-keyname" placeholder="unique_key">
+      <div style="margin-top: auto; padding: 20px; border-top: 1px solid #f1f3f4;">
+        <button id="lang-toggle" class="lang-btn" style="width: 100%; border: 1px solid #dadce0;">English / 中文</button>
       </div>
-      <div class="form-group">
-        <label data-i18n="labelDesc">Description</label>
-        <input type="text" id="new-description" placeholder="e.g. My mobile phone for deliveries">
-      </div>
-      <div class="form-group">
-        <label data-i18n="labelValue">Value</label>
-        <input type="text" id="new-value" placeholder="The actual content to fill">
-      </div>
-      <div id="new-fake-value-group" class="form-group" style="display:none;">
-        <label data-i18n="labelFakeValue">Fake Value</label>
-        <input type="text" id="new-fake-value" placeholder="e.g. 138-0000-0000">
-      </div>
-      <div class="form-group" style="display:flex; align-items:center; gap:8px;">
-        <input type="checkbox" id="new-is-secret" style="width:auto;">
-        <label for="new-is-secret" style="margin:0;" data-i18n="labelSecret">High Sensitivity</label>
-      </div>
-      <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry</button>
-    </div>
+    </nav>
 
-    <h2 data-i18n="savedInfo">Saved Information</h2>
-    <div id="info-list" class="card" style="padding:0;"></div>
+    <main class="main-content">
+      <!-- Vault Section -->
+      <section id="vault" class="content-section active">
+        <div id="unlock-card" class="card" style="display:none; text-align:center;">
+          <h3 data-i18n="unlockTitle">Unlock Vault</h3>
+          <p data-i18n="unlockDesc">Enter master password to access your data.</p>
+          <input type="password" id="unlock-pass" placeholder="Password" style="margin-bottom:15px;">
+          <button id="unlock-btn" class="save-btn" data-i18n="unlockBtn">Unlock</button>
+        </div>
 
-    <h2 data-i18n="whitelistTitle">Trusted Websites</h2>
-    <div class="card">
-      <p style="font-size:13px; color:#666;" data-i18n="whitelistDesc">Real values for high-sensitivity data are only filled on these sites.</p>
-      <div style="display:flex; gap:10px; margin-bottom:15px;">
-        <input type="text" id="new-whitelist-item" placeholder="e.g. github.com" style="flex:1;">
-        <button id="add-whitelist-btn" class="save-btn" data-i18n="addBtn">Add</button>
-      </div>
-      <div id="whitelist-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-    </div>
+        <div id="add-form" class="card">
+          <h3 data-i18n="addNewInfo">Add New Info</h3>
+          <div class="form-group">
+            <label data-i18n="labelKeyname">Keyname</label>
+            <input type="text" id="new-keyname" placeholder="unique_key">
+          </div>
+          <div class="form-group">
+            <label data-i18n="labelDesc">Description</label>
+            <input type="text" id="new-description" placeholder="e.g. My mobile phone for deliveries">
+          </div>
+          <div class="form-group">
+            <label data-i18n="labelValue">Value</label>
+            <input type="text" id="new-value" placeholder="The actual content to fill">
+          </div>
+          <div id="new-fake-value-group" class="form-group" style="display:none;">
+            <label data-i18n="labelFakeValue">Fake Value</label>
+            <input type="text" id="new-fake-value" placeholder="e.g. 138-0000-0000">
+          </div>
+          <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="new-is-secret" style="width:auto;">
+            <label for="new-is-secret" style="margin:0;" data-i18n="labelSecret">High Sensitivity</label>
+          </div>
+          <button id="add-btn" class="save-btn" data-i18n="saveBtn">Add Entry</button>
+        </div>
+
+        <h2 data-i18n="savedInfo">Saved Information</h2>
+        <div id="info-list" class="card" style="padding:0;"></div>
+      </section>
+
+      <!-- Whitelist Section -->
+      <section id="whitelist" class="content-section">
+        <h2 data-i18n="whitelistTitle">Trusted Websites</h2>
+        <div class="card">
+          <p style="font-size:13px; color:#666;" data-i18n="whitelistDesc">Real values for high-sensitivity data are only filled on these sites.</p>
+          <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <input type="text" id="new-whitelist-item" placeholder="e.g. github.com" style="flex:1;">
+            <button id="add-whitelist-btn" class="save-btn" data-i18n="addBtn">Add</button>
+          </div>
+          <div id="whitelist-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+      </section>
+
+      <!-- Data Management Section -->
+      <section id="data-mgmt" class="content-section">
+        <h2 data-i18n="dataManagement">Data Management</h2>
+        <div class="card">
+          <p style="font-size:13px; color:#666;" data-i18n="dataMgmtDesc">Backup or restore your personal information. Encrypted data remains encrypted.</p>
+          <div style="display:flex; gap:10px; margin-bottom: 20px;">
+            <button id="export-btn" class="save-btn" data-i18n="exportBtn">Export (导出)</button>
+            <button id="import-btn" class="save-btn" style="background-color:#1aa260;" data-i18n="importBtn">Import (导入)</button>
+            <input type="file" id="import-file" style="display:none;" accept=".json">
+          </div>
+
+          <div style="border-top: 1px solid #eee; padding-top: 15px;">
+            <div id="format-help-toggle" style="cursor:pointer; color:var(--primary-color); font-size:13px; display:flex; align-items:center; gap:5px;">
+              <span id="format-help-icon">▶</span> <span data-i18n="formatHelpTitle">Import Format Instructions</span>
+            </div>
+            <div id="format-help-content" style="display:none; margin-top:10px; font-size:12px; color:#555; background:#f9f9f9; padding:12px; border-radius:4px; line-height:1.6;">
+              <p><strong data-i18n="formatPlainTitle">Unencrypted JSON Format:</strong></p>
+              <pre style="background:#eee; padding:8px; border-radius:4px; overflow-x:auto;">{
+  "type": "ai-autofill-export",
+  "version": 1,
+  "encrypted": false,
+  "data": [
+    {
+      "keyname": "example_key",
+      "description": "Optional description",
+      "value": "Actual value",
+      "isSecret": false,
+      "fakeValue": ""
+    }
+  ]
+}</pre>
+              <p data-i18n="formatDesc">You can manually create or edit unencrypted files for bulk import. If encryption is enabled, imported plain data will be automatically encrypted.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Section -->
+      <section id="settings" class="content-section">
+        <h2 data-i18n="settingsTitle">General Settings</h2>
+        <div class="card" style="padding: 0;">
+          <div class="setting-row">
+            <div>
+              <div style="font-weight: 500;" data-i18n="oneByOne">One-by-one mode</div>
+              <div style="font-size: 12px; color: #666;" data-i18n="oneByOneDesc">Show suggestion one by one</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="one-by-one-toggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div style="font-weight: 500;" data-i18n="clusterMode">Smart Cluster Mode</div>
+              <div style="font-size: 12px; color: #666;" data-i18n="clusterModeDesc">Group related inputs by structure</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cluster-toggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div style="font-weight: 500;" data-i18n="debugLogs">Debug logs</div>
+              <div style="font-size: 12px; color: #666;" data-i18n="debugLogsDesc">Show detailed logs in console</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="debug-toggle">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <h2 data-i18n="securityTitle" style="margin-top: 30px;">Security</h2>
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div id="security-status-display" style="font-weight: 500;"></div>
+            <button id="security-btn" class="lang-btn" style="color:var(--primary-color);">Manage Security</button>
+          </div>
+          <p style="font-size:13px; color:#666;" data-i18n="securityDesc">Encryption protects your data with a master password.</p>
+        </div>
+
+        <h2 style="margin-top: 30px;">AI Status</h2>
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div data-i18n="aiLoadingDesc">Gemini Nano model status</div>
+            <button id="check-ai-btn" class="lang-btn" data-i18n="checkAI">Check AI Status</button>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
   <!-- Edit Modal -->
@@ -234,8 +235,33 @@
     </div>
   </div>
 
-  <script src="../content/crypto.js"></script>
-  <script src="../content/storage.js"></script>
-  <script src="options.js"></script>
+  <!-- Prompt Modal -->
+  <div id="prompt-modal" class="modal">
+    <div class="modal-content">
+      <h3 id="prompt-title">Prompt</h3>
+      <p id="prompt-desc"></p>
+      <div class="form-group">
+        <input type="password" id="prompt-input" style="margin-top: 10px;">
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+        <button id="prompt-cancel" class="lang-btn" data-i18n="cancelBtn">Cancel</button>
+        <button id="prompt-ok" class="save-btn" data-i18n="unlockBtn">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Model Loading Modal -->
+  <div id="ai-loading-modal" class="modal">
+    <div class="modal-content" style="text-align:center;">
+      <h3 data-i18n="aiLoadingTitle">Initializing AI Model</h3>
+      <p data-i18n="aiLoadingDesc">The AI model (Gemini Nano) is being prepared for the first time. This may take a while depending on your internet speed.</p>
+      <div style="width:100%; height:8px; background:#eee; border-radius:4px; margin:20px 0; overflow:hidden;">
+        <div id="ai-progress-bar" style="width:0%; height:100%; background:var(--primary-color); transition: width 0.3s;"></div>
+      </div>
+      <p id="ai-progress-text">0%</p>
+    </div>
+  </div>
+
+  <script type="module" src="options.js"></script>
 </body>
 </html>

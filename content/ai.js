@@ -136,7 +136,8 @@ const AIManager = {
 
     try {
       const result = await session.prompt(prompt, {
-        responseConstraint: schema
+        responseConstraint: schema,
+        expectedOutputs: [{ type: 'text', languages: ['en'] }]
       });
 
       if (isDebug) console.log('AIManager: Raw AI response:', result);
