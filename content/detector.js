@@ -6,10 +6,12 @@ const InputDetector = {
    * @returns {HTMLInputElement[]}
    */
   getVisibleInputs() {
-    const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"])'));
+    const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable]'));
     return inputs.filter(input => {
       const style = window.getComputedStyle(input);
-      return style.display !== 'none' && style.visibility !== 'hidden' && !input.disabled && !input.readOnly;
+      const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
+      const isEditable = input.isContentEditable || input.getAttribute('contenteditable') !== null;
+      return isVisible && (isEditable || (!input.disabled && !input.readOnly));
     });
   },
 

@@ -33,6 +33,76 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+/**
+ * Streaming Support using runtime.connect
+ */
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "ai-stream") {
+    port.onMessage.addListener(async (msg) => {
+      if (msg.action === "stream-completion") {
+        try {
+          const { apiUrl, apiKey, model, userPrompt, systemPrompt } = msg;
+          const baseUrl = apiUrl.replace(/\/$/, '');
+          const endpoint = `${baseUrl}/chat/completions`;
+
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: model,
+              messages: [
+                { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+                { role: 'user', content: userPrompt }
+              ],
+              stream: true
+            })
+          });
+
+          if (!response.ok) {
+            const err = await response.text();
+            port.postMessage({ error: `API Error: ${response.status} ${err}` });
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              const cleanedLine = line.replace(/^data: /, "").trim();
+              if (cleanedLine === "" || cleanedLine === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(cleanedLine);
+                const chunk = parsed.choices?.[0]?.delta?.content;
+                if (chunk) {
+                  port.postMessage({ chunk });
+                }
+              } catch (e) {
+                console.error("Error parsing stream chunk", e);
+              }
+            }
+          }
+          port.postMessage({ done: true });
+        } catch (error) {
+          port.postMessage({ error: error.message });
+        }
+      }
+    });
+  }
+});
+
 async function handleFetchModels({ apiUrl, apiKey }) {
   // Typical OpenAI endpoint
   const start = Date.now();

@@ -1,486 +1,206 @@
 // content/main.js
 
+/**
+ * MainController: Orchestrates the extension logic on the page.
+ * Keeps glue code and event listeners here, delegating UI and Strategy to other modules.
+ */
 const MainController = {
   isProcessing: false,
   abortController: null,
+  floatingPrompt: null,
+  lastValueMap: new WeakMap(),
 
   async init() {
     console.log('AI Autofill: Initialized');
-    // Listen for messages from background script (ContextMenu)
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === "run-autofill") {
-        this.runAutofill();
-      }
+
+    // Register cross-module references
+    AutofillStrategies.executeFill = this.executeFill.bind(this);
+
+    // Listen for context menu triggers
+    chrome.runtime.onMessage.addListener((request) => {
+      if (request.action === 'run-autofill') this.runAutofill();
+    });
+
+    // Handle Floating Prompt Feature
+    const enabled = await StorageManager.getFloatingPromptSetting();
+    if (enabled) {
+      this.floatingPrompt = UIComponents.initFloatingPrompt(
+        this.runStreamingFill.bind(this),
+        this.handleUndo.bind(this)
+      );
+      
+      // Auto-position on focus
+      const handleFocus = (e) => {
+        let target = e.target;
+        // Handle Shadow DOM and nested elements
+        if (e.composedPath) target = e.composedPath()[0] || target;
+
+        const isStandardInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+        const editableRoot = target.closest?.('[contenteditable]') || (target.isContentEditable ? target : null);
+        
+        const effectiveTarget = isStandardInput ? target : editableRoot;
+
+        if (effectiveTarget && effectiveTarget.id !== 'ai-autofill-floating-prompt' && !this.floatingPrompt.box.contains(effectiveTarget)) {
+          UIComponents.updateFloatingPromptPosition(this.floatingPrompt, effectiveTarget);
+        }
+      };
+
+      document.addEventListener('focusin', handleFocus);
+      document.addEventListener('click', (e) => {
+        // Fallback for elements that already have focus or managed by frameworks
+        if (document.activeElement === e.target || e.target.isContentEditable) {
+           handleFocus(e);
+        }
+      });
+
+      // Hide when clicking away
+      document.addEventListener('mousedown', (e) => {
+        if (this.floatingPrompt && !this.floatingPrompt.box.contains(e.target) && this.floatingPrompt.targetInput !== e.target) {
+          this.floatingPrompt.box.style.display = 'none';
+        }
+      });
+    }
+  },
+
+  handleUndo(target) {
+    if (!target) return;
+    const prev = this.lastValueMap.get(target);
+    if (prev !== undefined) {
+      if (target.isContentEditable) target.innerHTML = prev;
+      else target.value = prev;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  },
+
+  /**
+   * AI-Powered individual field fill (Streaming result into input)
+   */
+  async runStreamingFill(target, prompt) {
+    const aiSettings = await StorageManager.getAISettings();
+    if (aiSettings.provider !== 'remote') return alert('请先在设置中配置远程 AI 提供商。');
+
+    // Save for undo
+    this.lastValueMap.set(target, target.isContentEditable ? target.innerHTML : target.value);
+
+    const port = chrome.runtime.connect({ name: 'ai-stream' });
+    const context = InputDetector.getInputContext(target);
+    
+    port.postMessage({
+      action: 'stream-completion',
+      apiUrl: aiSettings.apiUrl,
+      apiKey: aiSettings.apiKey,
+      model: aiSettings.model,
+      userPrompt: prompt,
+      systemPrompt: `You are a helpful assistant. User is focusing on "${context}". Output ONLY the content to fill.`
+    });
+
+    if (target.isContentEditable) target.innerHTML = '';
+    else target.value = ''; 
+
+    return new Promise((resolve) => {
+      port.onMessage.addListener((msg) => {
+        if (msg.chunk) {
+          if (target.isContentEditable) {
+            target.innerHTML += msg.chunk;
+          } else {
+            const start = target.selectionStart, end = target.selectionEnd, val = target.value;
+            target.value = val.slice(0, start) + msg.chunk + val.slice(end);
+            target.selectionStart = target.selectionEnd = start + msg.chunk.length;
+          }
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (msg.done || msg.error) {
+          if (msg.error) console.error('Streaming error:', msg.error);
+          port.disconnect();
+          resolve();
+        }
+      });
     });
   },
 
-  async runAutofill() {
-    if (this.isProcessing) {
-      if (this.abortController) {
-        this.abortController.abort();
+  /**
+   * Lower-level fill execution with verification logic for secrets
+   */
+  async executeFill(input, matchedKey, personalInfo) {
+    const infoItem = personalInfo.find(i => i.keyname === matchedKey);
+    if (!infoItem) return;
+
+    const lang = await StorageManager.getLanguage();
+    const whitelist = await StorageManager.getWhitelist();
+    const currentHost = window.location.hostname;
+    
+    // Whitelist check
+    const isWhitelisted = whitelist.some(p => {
+      const regex = new RegExp('^' + p.split('.').map(part => part === '*' ? '.*' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$');
+      return regex.test(currentHost);
+    });
+
+    let val = infoItem.value;
+    if (infoItem.isSecret) {
+      if (isWhitelisted) {
+        const title = lang === 'zh' ? '敏感字段确认' : 'Sensitive Field';
+        const body = lang === 'zh' 
+          ? `确定要在 ${currentHost} 填写 ${infoItem.keyname} 吗？`
+          : `Fill ${infoItem.keyname} on ${currentHost}?`;
+        if (!(await UIComponents.customConfirm(title, body, lang))) return;
+      } else {
+        val = infoItem.fakeValue || '••••••••';
       }
-      this.isProcessing = false;
-      return;
     }
+
+    InputFiller.fill(input, val);
+    input.style.backgroundColor = '#e8f0fe';
+  },
+
+  /**
+   * Main entry point for full-page autofill
+   */
+  async runAutofill() {
+    if (this.isProcessing) return this.abortController?.abort();
 
     this.isProcessing = true;
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
-    const isDebug = await StorageManager.getDebugSetting();
-    if (isDebug) console.log('MainController: runAutofill triggered [v2.0 Check]. isDebug:', isDebug);
-    
-    const oneByOne = await StorageManager.getOneByOneSetting();
-    const useCluster = await StorageManager.getClusterSetting();
-    
-    // Log AI Provider status
-    const aiSettings = await StorageManager.getAISettings();
-    if (isDebug) console.log(`MainController: AI Provider -> ${aiSettings.provider} ${aiSettings.provider === 'remote' ? `(Model: ${aiSettings.model})` : ''}`);
-
-    const lang = await StorageManager.getLanguage();
-    const whitelist = await StorageManager.getWhitelist();
-    const currentHost = window.location.hostname;
-
-    const isDomainWhitelisted = (host, list) => {
-      return list.some(pattern => {
-        const regex = new RegExp('^' + pattern.split('.').map(part => part === '*' ? '.*' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$');
-        return regex.test(host);
-      });
-    };
-
-    const createOverlay = () => {
-      const overlay = document.createElement('div');
-      Object.assign(overlay.style, {
-        position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-        backgroundColor: 'rgba(0,0,0,0.5)', zIndex: '10000',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'sans-serif'
-      });
-      return overlay;
-    };
-
-    const customAlert = (titleText, bodyText) => {
-      return new Promise((resolve) => {
-        const overlay = createOverlay();
-        const modal = document.createElement('div');
-        Object.assign(modal.style, {
-          background: 'white', padding: '24px', borderRadius: '8px', 
-          width: '320px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-        });
-        modal.innerHTML = `
-          <h3 style="margin-top:0;">${titleText}</h3>
-          <p style="font-size:14px; color:#555;">${bodyText}</p>
-          <div style="display:flex; justify-content:flex-end; margin-top:20px;">
-            <button style="padding:8px 16px; background:#4285f4; color:white; border:none; border-radius:4px; cursor:pointer;">OK</button>
-          </div>
-        `;
-        overlay.append(modal);
-        document.body.append(overlay);
-        modal.querySelector('button').onclick = () => { overlay.remove(); resolve(); };
-      });
-    };
-
-    const customConfirm = (titleText, bodyText) => {
-      return new Promise((resolve) => {
-        const overlay = createOverlay();
-        const modal = document.createElement('div');
-        Object.assign(modal.style, {
-          background: 'white', padding: '24px', borderRadius: '8px',
-          width: '350px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-        });
-        modal.innerHTML = `
-          <h3 style="margin-top:0;">${titleText}</h3>
-          <p style="font-size:14px; line-height:1.5; color:#555;">${bodyText}</p>
-          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
-            <button id="modal-cancel" style="padding:8px 16px; border:none; border-radius:4px; background:#eee; cursor:pointer;">${lang === 'zh' ? '取消' : 'Cancel'}</button>
-            <button id="modal-confirm" style="padding:8px 16px; border:none; border-radius:4px; background:#4285f4; color:white; cursor:pointer;">${lang === 'zh' ? '确定' : 'Confirm'}</button>
-          </div>
-        `;
-        overlay.append(modal);
-        document.body.append(overlay);
-        const cleanup = () => overlay.remove();
-        overlay.querySelector('#modal-cancel').onclick = () => { cleanup(); resolve(false); };
-        overlay.querySelector('#modal-confirm').onclick = () => { cleanup(); resolve(true); };
-      });
-    };
-
-    const showPasswordModal = () => {
-      return new Promise((resolve) => {
-        const overlay = createOverlay();
-        const modal = document.createElement('div');
-        Object.assign(modal.style, {
-          background: 'white', padding: '24px', borderRadius: '8px',
-          width: '320px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-        });
-        modal.innerHTML = `
-          <h3 style="margin-top:0;">${lang === 'zh' ? '安全验证' : 'Security Verification'}</h3>
-          <p style="font-size:14px;">${lang === 'zh' ? '请输入主密码以解锁数据：' : 'Enter master password to unlock vault:'}</p>
-          <input type="password" id="modal-pass" style="width:100%; padding:8px; box-sizing:border-box; margin-bottom:16px; border:1px solid #ccc; border-radius:4px;">
-          <div style="display:flex; justify-content:flex-end; gap:8px;">
-            <button id="modal-cancel" style="padding:8px 16px; border:none; border-radius:4px; background:#eee; cursor:pointer;">${lang === 'zh' ? '取消' : 'Cancel'}</button>
-            <button id="modal-confirm" style="padding:8px 16px; border:none; border-radius:4px; background:#4285f4; color:white; border:none; border-radius:4px; cursor:pointer;">${lang === 'zh' ? '确认' : 'Unlock'}</button>
-          </div>
-        `;
-        overlay.append(modal);
-        document.body.append(overlay);
-        const input = overlay.querySelector('#modal-pass');
-        input.focus();
-        const cleanup = () => overlay.remove();
-        overlay.querySelector('#modal-confirm').onclick = () => { resolve(input.value); cleanup(); };
-        overlay.querySelector('#modal-cancel').onclick = () => { resolve(null); cleanup(); };
-        input.onkeydown = (e) => {
-          if (e.key === 'Enter') overlay.querySelector('#modal-confirm').click();
-          if (e.key === 'Escape') overlay.querySelector('#modal-cancel').click();
-        };
-      });
-    };
-
-    const showLoading = () => {
-      const overlay = createOverlay();
-      overlay.innerHTML = `
-        <div style="background:white; padding:20px; border-radius:8px; display:flex; flex-direction:column; align-items:center; gap:15px;">
-          <div style="width:40px; height:40px; border:4px solid #f3f3f3; border-top:4px solid #4285f4; border-radius:50%; animation: spin 1s linear infinite;"></div>
-          <span style="font-size:14px; color:#333;">${lang === 'zh' ? 'AI 正在匹配字段...' : 'AI matching fields...'}</span>
-        </div>
-        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-      `;
-      document.body.append(overlay);
-      return overlay;
-    };
-
-    const applyHalo = (input) => {
-      const originalBoxShadow = input.style.boxShadow;
-      const originalTransition = input.style.transition;
-      input.style.transition = 'box-shadow 0.2s ease-out, background-color 0.2s ease-out';
-      input.style.boxShadow = '0 0 15px 5px rgba(66, 133, 244, 0.8)';
-      return () => {
-        input.style.boxShadow = originalBoxShadow;
-        setTimeout(() => {
-          input.style.transition = originalTransition;
-        }, 300);
-      };
-    };
-
-    const isWhitelisted = isDomainWhitelisted(currentHost, whitelist);
-
-    const executeFill = async (input, matchedKey, personalInfo) => {
-      const infoItem = personalInfo.find(i => i.keyname === matchedKey);
-      if (!infoItem) return;
-
-      let valueToFill = infoItem.value;
-      if (infoItem.isSecret) {
-        if (isWhitelisted) {
-          const title = lang === 'zh' ? '敏感字段确认' : 'Sensitive Field';
-          const body = lang === 'zh' 
-            ? `检测到高敏感字段：<b>${infoItem.keyname}</b><br>描述：${infoItem.description || '无'}<br><br>页面：${currentHost}<br>确定要填写此项吗？`
-            : `High sensitivity field: <b>${infoItem.keyname}</b><br>Description: ${infoItem.description || 'None'}<br><br>Site: ${currentHost}<br>Fill this field?`;
-          if (!(await customConfirm(title, body))) return;
-        } else {
-          valueToFill = infoItem.fakeValue || '••••••••';
-        }
-      }
-      
-      if (isDebug) console.log(`MainController: Filling ${matchedKey}`);
-      InputFiller.fill(input, valueToFill);
-      input.style.backgroundColor = '#e8f0fe';
-    };
-
-    const strategies = {
-      /**
-       * Strategy 1: One-by-One
-       * Matches inputs one by one for maximum visibility.
-       */
-      oneByOne: async (inputs, personalInfo) => {
-        if (isDebug) console.log('MainController: One-by-One mode started');
-        for (let i = 0; i < inputs.length; i++) {
-          if (signal.aborted) break;
-          const input = inputs[i];
-          const removeHalo = applyHalo(input);
-          
-          try {
-            await new Promise(r => setTimeout(r, 150)); 
-            const context = InputDetector.getInputContext(input);
-            const [match] = await AIManager.identifyFieldsBatch([{ id: i, context }], personalInfo, isDebug);
-            
-            if (match?.matchedKey) {
-              await executeFill(input, match.matchedKey, personalInfo);
-              await new Promise(r => setTimeout(r, 400));
-            } else {
-              await new Promise(r => setTimeout(r, 200));
-            }
-          } finally {
-            removeHalo();
-            await new Promise(r => setTimeout(r, 250));
-          }
-        }
-      },
-
-      /**
-       * Strategy 2: Batch (Global)
-       * Matches all visible inputs in one single AI call.
-       */
-      batch: async (inputs, personalInfo) => {
-        if (isDebug) console.log('MainController: Batch mode started');
-        const overlay = showLoading();
-        try {
-          const fieldBatch = inputs.map((input, index) => ({ id: index, context: InputDetector.getInputContext(input) }));
-          const matches = await AIManager.identifyFieldsBatch(fieldBatch, personalInfo, isDebug);
-          
-          for (const match of matches) {
-            if (signal.aborted) break;
-            if (match.matchedKey) {
-              const input = inputs[match.inputId];
-              const removeHalo = applyHalo(input);
-              await executeFill(input, match.matchedKey, personalInfo);
-              await new Promise(r => setTimeout(r, 400));
-              removeHalo();
-            }
-          }
-        } finally {
-          overlay.remove();
-        }
-      },
-
-      /**
-       * Strategy 3: Cluster (Group-based) - v2 Enhanced
-       * Groups inputs by finding the lowest common ancestor that contains multiple inputs,
-       * then sub-groups by DOM depth. Extracts non-input text from that ancestor as context.
-       */
-      cluster: async (inputs, personalInfo) => {
-        // Force log to confirm entry
-        console.log('MainController: Cluster mode started (isDebug check skipped for diagnosis)');
-
-        // --- 1. Bubbling Phase: Fine-Grained Clustering ---
-        // Algorithm:
-        // 1. Start with direct parents of inputs.
-        // 2. Bubble up ONLY if the parent node is composed entirely of "Atomic" children.
-        //    (An Atomic child contains at most 1 visible input).
-        // 3. If a parent has any child with >1 inputs, it implies that child is a cluster itself, 
-        //    so grouping at the parent level would be too coarse.
-        
-        const inputOwners = new Map(); 
-        inputs.forEach((input, idx) => inputOwners.set(idx, input.parentElement));
-
-        // Helper: Count how many of our target inputs are contained within a given DOM element
-        const getInputCountInElement = (el) => {
-            let count = 0;
-            for (const input of inputs) {
-                if (el === input || el.contains(input)) {
-                    count++;
-                }
-            }
-            return count;
-        };
-
-        let changed = true;
-        let iterations = 0;
-        const MAX_ITERATIONS = 20;
-
-        while (changed && iterations < MAX_ITERATIONS) {
-          changed = false;
-          iterations++;
-
-          const ownerGroups = new Map();
-          for (const [idx, owner] of inputOwners) {
-            if (!ownerGroups.has(owner)) ownerGroups.set(owner, []);
-            ownerGroups.get(owner).push(idx);
-          }
-
-          for (const [owner, idxs] of ownerGroups) {
-             const parent = owner.parentElement;
-             if (!parent || ['BODY', 'HTML'].includes(parent.tagName)) continue;
-
-             // Check "Fine-Grained" Condition:
-             // Parent is a valid cluster root ONLY if all its children are "Atomic" (<= 1 input).
-             let parentIsValid = true;
-             for (const child of parent.children) {
-                 if (getInputCountInElement(child) > 1) {
-                     parentIsValid = false;
-                     break;
-                 }
-             }
-
-             if (parentIsValid) {
-                // Safe to bubble up
-                idxs.forEach(idx => inputOwners.set(idx, parent));
-                changed = true;
-             }
-          }
-        }
-
-        // --- 2. Construction Phase: Organize by Root -> Depth ---
-        const clusters = new Map(); // HTMLElement (Root) -> Map<Depth, Array<{input, index}>>
-
-        for (const [idx, owner] of inputOwners) {
-          if (!clusters.has(owner)) clusters.set(owner, new Map());
-          
-          // Calculate absolute depth of input
-          let depth = 0;
-          let curr = inputs[idx];
-          while (curr.parentElement) { curr = curr.parentElement; depth++; }
-
-          const depthMap = clusters.get(owner);
-          if (!depthMap.has(depth)) depthMap.set(depth, []);
-          depthMap.get(depth).push({ input: inputs[idx], index: idx });
-        }
-
-        // --- 3. Preparation Phase: Build Execution Batches ---
-        const finalBatches = [];
-
-        for (const [root, depthMap] of clusters) {
-          // A. Extract "Cluster Context" (Text from Root's children that DON'T contain the inputs)
-          // This captures things like "2. 职业与社交媒体" in the user's example
-          let clusterContext = '';
-          try {
-             // Identify all inputs belonging to this cluster root (all depths)
-             const allClusterInputs = [];
-             for (const items of depthMap.values()) items.forEach(i => allClusterInputs.push(i.input));
-             
-             const contextParts = [];
-             // Iterate direct children of the cluster root
-             for (const child of root.children) {
-                // Skip if this child is one of the inputs or WRAPS one of the inputs
-                // (If it wraps an input, its text is likely that input's specific label, handled by InputDetector)
-                const containsInput = allClusterInputs.some(input => child.contains(input) || child === input);
-                
-                if (!containsInput) {
-                   // This is a sibling node (like an H2 header, or description P)
-                   // Get clean text (ignoring hidden styles not checked here for perf, simple innerText)
-                   const text = child.innerText ? child.innerText.trim() : '';
-                   if (text.length > 0 && text.length < 300) { // arbitrary limit to avoid massive texts
-                      contextParts.push(text);
-                   }
-                }
-             }
-             clusterContext = contextParts.join('; ');
-          } catch (e) {
-             if (isDebug) console.warn('Error extracting cluster context', e);
-          }
-
-          // B. Create Batches per Depth
-          for (const [depth, items] of depthMap) {
-            // Sort by DOM order (index)
-            items.sort((a, b) => a.index - b.index);
-            finalBatches.push({ items, clusterContext, depth });
-          }
-        }
-
-        // Sort execution order by the first input's index in the batch
-        finalBatches.sort((a, b) => a.items[0].index - b.items[0].index);
-
-        if (isDebug || true) { // Force log for diagnosis
-          console.group('MainController: Cluster Classification Results');
-          console.log(`Total Batches: ${finalBatches.length}`);
-          finalBatches.forEach((batch, bIdx) => {
-            const indices = batch.items.map(i => i.index).join(', ');
-            console.log(`#${bIdx + 1} | Depth: ${batch.depth} | Inputs: [${indices}] | Context: "${batch.clusterContext.slice(0, 50).replace(/\n/g, ' ')}..."`);
-          });
-          console.groupEnd();
-        }
-
-        if (isDebug) console.log(`MainController: Enhanced Cluster Strategy prepared ${finalBatches.length} batches.`);
-
-        // --- 4. Execution Phase ---
-        for (const batch of finalBatches) {
-          if (signal.aborted) break;
-          
-          if (isDebug) {
-             const preview = batch.items.map(c => `[${c.index}]`).join(', ');
-             console.log(`MainController: Processing Batch (Depth: ${batch.depth}) Context: "${batch.clusterContext.slice(0, 30)}..." Items: ${preview}`);
-          }
-
-          const halos = batch.items.map(item => applyHalo(item.input));
-          
-          try {
-            // Construct Batch Request
-            const fieldBatch = batch.items.map(item => {
-               const localContext = InputDetector.getInputContext(item.input);
-               // Combine Cluster Context + Local Context
-               const combinedContext = batch.clusterContext 
-                  ? `[Section Context: ${batch.clusterContext}] ${localContext}`
-                  : localContext;
-               
-               return { id: item.index, context: combinedContext };
-            });
-
-            const matches = await AIManager.identifyFieldsBatch(fieldBatch, personalInfo, isDebug);
-            
-            for (const match of matches) {
-              if (match.matchedKey) {
-                const item = batch.items.find(i => i.index === match.inputId);
-                if (item) {
-                  await executeFill(item.input, match.matchedKey, personalInfo);
-                }
-              }
-            }
-            // Dynamic pause
-            const pauseTime = Math.min(800, 400 + batch.items.length * 100); 
-            await new Promise(r => setTimeout(r, pauseTime)); 
-          } finally {
-            halos.forEach(remove => remove());
-            await new Promise(r => setTimeout(r, 200));
-          }
-        }
-      }
-    };
-
     try {
-      const isEncrypted = await StorageManager.isEncryptionEnabled();
-      if (isEncrypted) {
-        const password = await showPasswordModal();
-        if (!password) {
-          this.isProcessing = false;
-          return;
-        }
-        await StorageManager.unlock(password);
+      const lang = await StorageManager.getLanguage();
+
+      // 1. Check encryption
+      if (await StorageManager.isEncryptionEnabled()) {
+        const pass = await UIComponents.showPasswordModal(lang);
+        if (!pass) return;
+        await StorageManager.unlock(pass);
       }
 
-      const personalInfo = await StorageManager.getPersonalInfo();
-      if (isDebug) console.log('MainController: Personal info retrieved:', personalInfo.length, 'items');
-
-      if (personalInfo.length === 0) {
-        const msg = lang === 'zh' ? '请先在扩展选项中配置个人信息。' : 'Please configure your personal information in the extension options first.';
-        await customAlert(lang === 'zh' ? '提示' : 'Tip', msg);
-        this.isProcessing = false;
-        return;
-      }
-
+      // 2. Gather context
+      const info = await StorageManager.getPersonalInfo();
       const inputs = InputDetector.getVisibleInputs();
-      if (isDebug) console.log('MainController: Visible inputs found:', inputs.length);
-
-      if (inputs.length === 0) {
-        this.isProcessing = false;
-        return;
+      
+      if (!info.length) {
+        return UIComponents.customAlert('Tip', lang === 'zh' ? '请先配置个人信息。' : 'Please configure info.', lang);
       }
+      if (!inputs.length) return;
 
-      // Determine strategy based on settings
-      // Explicitly log the decision for debugging
-      console.log(`MainController: Dispatching Strategy -> OneByOne: ${oneByOne}, Cluster: ${useCluster}`);
+      const isDebug = await StorageManager.getDebugSetting();
+      const oneByOne = await StorageManager.getOneByOneSetting();
+      const useCluster = await StorageManager.getClusterSetting();
 
+      // 3. Execution
       if (oneByOne) {
-        await strategies.oneByOne(inputs, personalInfo);
+        await AutofillStrategies.oneByOne(inputs, info, signal, isDebug);
       } else if (useCluster) {
-         // Explicit cluster mode
-        await strategies.cluster(inputs, personalInfo);
+        await AutofillStrategies.cluster(inputs, info, signal, isDebug);
       } else {
-        // Default batch (or previous implicit cluster, now explicit batch)
-        // If user didn't select Cluster, existing logic was "if not oneByOne, assume cluster".
-        // Now we have a specific Cluster toggle. If False, we should probably fall back to Global Batch for speed.
-        console.log(`MainController: Fallback to Batch strategy (OneByOne=${oneByOne}, Cluster=${useCluster})`);
-        await strategies.batch(inputs, personalInfo);
+        await AutofillStrategies.batch(inputs, info, signal, isDebug, () => UIComponents.showLoading(lang));
       }
     } catch (e) {
-      if (!signal.aborted) {
-        const title = lang === 'zh' ? '错误' : 'Error';
-        await customAlert(title, e.message);
-      }
+      if (!signal.aborted) UIComponents.customAlert('Error', e.message);
     } finally {
       StorageManager.lock();
       this.isProcessing = false;
-      this.abortController = null;
     }
   }
 };
 
-// Start the controller
 MainController.init();

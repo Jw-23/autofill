@@ -12,6 +12,12 @@ export async function initSettings() {
     await VaultStorage.setDebugSetting(debugToggle.checked);
   };
 
+  const floatingPromptToggle = document.getElementById('floating-prompt-toggle');
+  floatingPromptToggle.checked = await VaultStorage.getFloatingPromptSetting();
+  floatingPromptToggle.onchange = async () => {
+    await VaultStorage.setFloatingPromptSetting(floatingPromptToggle.checked);
+  };
+
   const oneByOneToggle = document.getElementById('one-by-one-toggle');
   const clusterToggle = document.getElementById('cluster-toggle');
 

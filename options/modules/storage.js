@@ -181,6 +181,20 @@ export const VaultStorage = {
     });
   },
 
+  async getFloatingPromptSetting() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['floatingPromptEnabled'], (result) => {
+        resolve(result.floatingPromptEnabled !== false); // Default to true
+      });
+    });
+  },
+
+  async setFloatingPromptSetting(enabled) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ floatingPromptEnabled: enabled }, resolve);
+    });
+  },
+
   async getLanguage() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['language'], (result) => {
