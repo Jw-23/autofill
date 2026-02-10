@@ -24,8 +24,17 @@ export const VaultStorage = {
 
   async isEncryptionEnabled() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['isEncrypted'], (result) => {
-        resolve(!!result.isEncrypted);
+      chrome.storage.local.get(['isSafeMode'], (result) => {
+        resolve(!!result.isSafeMode);
+      });
+    });
+  },
+
+  async factoryReset() {
+    return new Promise((resolve) => {
+      chrome.storage.local.clear(() => {
+        this.lock();
+        resolve();
       });
     });
   },
@@ -41,15 +50,32 @@ export const VaultStorage = {
 
     await new Promise((resolve) => {
       chrome.storage.local.set({
-        isEncrypted: true,
+        isSafeMode: true,
         salt: VaultCrypto.bufferToHex(salt),
         encryptedDataKey,
-        validator,
-        vault: null
+        validator
       }, resolve);
     });
 
     this._dataKey = dataKey;
+    
+    // Migration: Encrypt existing secrets
+    const info = await this.getPersonalInfoRaw();
+    await this.savePersonalInfo(info);
+  },
+
+  async disableEncryption() {
+    const info = await this.getPersonalInfo(); // Should be unlocked 
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        isSafeMode: false,
+        salt: null,
+        encryptedDataKey: null,
+        validator: null,
+        personalInfo: info
+      }, resolve);
+    });
+    this.lock();
   },
 
   async unlock(password) {
@@ -71,44 +97,101 @@ export const VaultStorage = {
     return true;
   },
 
+  async changePassword(oldPassword, newPassword) {
+    const isEnc = await this.isEncryptionEnabled();
+    if (!isEnc) throw new Error('Encryption not enabled');
+
+    const result = await new Promise(r => chrome.storage.local.get(['salt', 'encryptedDataKey'], r));
+    const oldSalt = VaultCrypto.hexToBuffer(result.salt);
+    const oldMasterKey = await VaultCrypto.deriveMasterKey(oldPassword, oldSalt);
+    
+    let rawDataKey;
+    try {
+      const hexDataKey = await VaultCrypto.decrypt(result.encryptedDataKey, oldMasterKey);
+      rawDataKey = VaultCrypto.hexToBuffer(hexDataKey);
+    } catch (e) {
+      throw new Error('INVALID_OLD_PASSWORD');
+    }
+
+    // Setup new master key protection for the SAME data key
+    const newSalt = crypto.getRandomValues(new Uint8Array(16));
+    const newMasterKey = await VaultCrypto.deriveMasterKey(newPassword, newSalt);
+    
+    const encryptedDataKey = await VaultCrypto.encrypt(VaultCrypto.bufferToHex(rawDataKey), newMasterKey);
+    const validator = await VaultCrypto.encrypt("VALID", newMasterKey);
+
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        salt: VaultCrypto.bufferToHex(newSalt),
+        encryptedDataKey,
+        validator
+      }, resolve);
+    });
+
+    this._dataKey = await VaultCrypto.importKey(rawDataKey);
+    return true;
+  },
+
   lock() {
     this._dataKey = null;
   },
 
-  async getPersonalInfo() {
-    const encryptionEnabled = await this.isEncryptionEnabled();
-    if (!encryptionEnabled) {
-      return new Promise((resolve) => {
-        chrome.storage.local.get(['personalInfo'], (result) => {
-          resolve(result.personalInfo || []);
-        });
+  async getPersonalInfoRaw() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['personalInfo'], (result) => {
+        resolve(result.personalInfo || []);
       });
+    });
+  },
+
+  async getPersonalInfo() {
+    const isSafeMode = await this.isEncryptionEnabled();
+    const items = await this.getPersonalInfoRaw();
+
+    if (!isSafeMode) return items;
+
+    const decryptedItems = [];
+    for (const item of items) {
+      if (item.isSecret && typeof item.value === 'object' && item.value.ciphertext) {
+        if (!this._dataKey) {
+          decryptedItems.push(item); // Still encrypted object
+        } else {
+          try {
+            const decVal = await VaultCrypto.decrypt(item.value, this._dataKey);
+            decryptedItems.push({ ...item, value: decVal });
+          } catch (e) {
+            decryptedItems.push(item);
+          }
+        }
+      } else {
+        decryptedItems.push(item);
+      }
     }
-
-    if (!this._dataKey) {
-      throw new Error('locked'); // Simplified error for checking
-    }
-
-    const { vault } = await new Promise(r => chrome.storage.local.get(['vault'], r));
-    if (!vault) return [];
-
-    return await VaultCrypto.decrypt(vault, this._dataKey);
+    return decryptedItems;
   },
 
   async savePersonalInfo(infoArray) {
-    const encryptionEnabled = await this.isEncryptionEnabled();
-    if (!encryptionEnabled) {
+    const isSafeMode = await this.isEncryptionEnabled();
+    if (!isSafeMode) {
       return new Promise((resolve) => {
-        chrome.storage.local.set({ personalInfo: infoArray }, () => {
-          resolve();
-        });
+        chrome.storage.local.set({ personalInfo: infoArray }, resolve);
       });
     }
 
-    if (!this._dataKey) throw new Error('Storage is locked');
+    // In Safe Mode, encrypt secrets
+    if (!this._dataKey) throw new Error('locked');
 
-    const encryptedVault = await VaultCrypto.encrypt(infoArray, this._dataKey);
-    await new Promise(r => chrome.storage.local.set({ vault: encryptedVault }, r));
+    const encryptedInfo = [];
+    for (const item of infoArray) {
+      if (item.isSecret && typeof item.value === 'string') {
+        const encVal = await VaultCrypto.encrypt(item.value, this._dataKey);
+        encryptedInfo.push({ ...item, value: encVal });
+      } else {
+        encryptedInfo.push(item);
+      }
+    }
+
+    await new Promise(r => chrome.storage.local.set({ personalInfo: encryptedInfo }, r));
   },
 
   async addPersonalInfo(item) {
@@ -256,27 +339,16 @@ export const VaultStorage = {
   },
 
   async exportPersonalInfo() {
-    const isEncrypted = await this.isEncryptionEnabled();
-    if (isEncrypted && !this._dataKey) throw new Error('Storage is locked');
-
-    if (isEncrypted) {
-      const { vault, salt, encryptedDataKey, validator } = await new Promise(r => chrome.storage.local.get(['vault', 'salt', 'encryptedDataKey', 'validator'], r));
-      return JSON.stringify({
-        type: 'ai-autofill-export',
-        version: 2,
-        encrypted: true,
-        metadata: { salt, encryptedDataKey, validator },
-        vault: vault
-      });
-    } else {
-      const info = await this.getPersonalInfo();
-      return JSON.stringify({
-        type: 'ai-autofill-export',
-        version: 2,
-        encrypted: false,
-        data: info
-      });
-    }
+    const isSafeMode = await this.isEncryptionEnabled();
+    const { personalInfo, salt, encryptedDataKey, validator } = await new Promise(r => chrome.storage.local.get(['personalInfo', 'salt', 'encryptedDataKey', 'validator'], r));
+    
+    return JSON.stringify({
+      type: 'ai-autofill-export',
+      version: 3,
+      isSafeMode: isSafeMode,
+      metadata: isSafeMode ? { salt, encryptedDataKey, validator } : null,
+      data: personalInfo
+    });
   },
 
   async importPersonalInfo(jsonStr, providedPassword = null) {
@@ -287,86 +359,38 @@ export const VaultStorage = {
       throw new Error('Invalid JSON');
     }
 
-    const isCurrentEncrypted = await this.isEncryptionEnabled();
-    let dataToSave = null;
-    let importedMetadata = null;
-    let fileIsEncrypted = false;
-
-    // 1. Identify Format and Extract Raw Data
-    if (payload && payload.type === 'ai-autofill-export') {
-      if (payload.encrypted) {
-        fileIsEncrypted = true;
-        if (!providedPassword) {
-          throw new Error('NEEDS_PASSWORD');
-        }
-        try {
-          const { salt, encryptedDataKey } = payload.metadata;
-          const masterKey = await VaultCrypto.deriveMasterKey(providedPassword, VaultCrypto.hexToBuffer(salt));
-          const hexDataKey = await VaultCrypto.decrypt(encryptedDataKey, masterKey);
-          const importDataKey = await VaultCrypto.importKey(VaultCrypto.hexToBuffer(hexDataKey));
-          dataToSave = await VaultCrypto.decrypt(payload.vault, importDataKey);
-          importedMetadata = payload.metadata;
-        } catch (e) {
-          throw new Error('INVALID_VAULT_PASSWORD');
-        }
-      } else {
-        dataToSave = payload.data;
-      }
-    } else if (Array.isArray(payload)) {
-      dataToSave = payload;
-    } else if (payload && Array.isArray(payload.data)) {
-      // Fallback for objects that might look like export but miss the type tag
-      dataToSave = payload.data;
-    } else {
+    if (!payload || (payload.type !== 'ai-autofill-export' && !Array.isArray(payload))) {
       throw new Error('INVALID_FORMAT');
     }
 
-    if (!dataToSave) {
-      throw new Error('IMPORT_FAILED');
-    }
+    let dataToSave = Array.isArray(payload) ? payload : payload.data;
+    let metadata = payload.metadata;
+    let isSafeMode = payload.isSafeMode || false;
 
-    // 2. Handle Storage into Local Vault
-    if (isCurrentEncrypted) {
-      // If encrypted, we verify password (unlock) then save.
-      if (!this._dataKey) {
-        if (!providedPassword) {
-          throw new Error('NEEDS_PASSWORD');
-        }
-        try {
-          await this.unlock(providedPassword);
-        } catch (e) {
-          // If we successfully decrypted the file from *another* vault (importedMetadata exists)
-          // but failed to unlock the *local* vault, we can adopt the imported security settings.
-          if (importedMetadata) {
-            await new Promise((resolve) => {
-              chrome.storage.local.set({
-                salt: importedMetadata.salt,
-                encryptedDataKey: importedMetadata.encryptedDataKey,
-                validator: importedMetadata.validator
-              }, resolve);
-            });
-            await this.unlock(providedPassword);
-          } else {
-            // Plain text import. Unlock failed with the provided password.
-            // Since this is a plain text import, strict password matching against the old vault 
-            // is not required to read the file (it's plain text).
-            // We interpret "providing a password" as "I want to encrypt this new data with THIS password".
-            // Therefore, if unlock fails (wrong password or corrupted vault), 
-            // we simply re-initialize the encryption with the provided password.
-            await this.setupEncryption(providedPassword);
-          }
-        }
-      }
-      // If we are here, we are either unlocked (via successful unlock) 
-      // or re-initialized (via setupEncryption). _dataKey should be set.
-      if (!this._dataKey) {
-          throw new Error('INVALID_VAULT_PASSWORD');
-      }
-      await this.savePersonalInfo(dataToSave);
+    if (isSafeMode && metadata) {
+      // If importing a Safe Mode export, we adopt its security settings
+      await new Promise((resolve) => {
+        chrome.storage.local.set({
+          isSafeMode: true,
+          salt: metadata.salt,
+          encryptedDataKey: metadata.encryptedDataKey,
+          validator: metadata.validator,
+          personalInfo: dataToSave
+        }, resolve);
+      });
+      this.lock(); // Lock until user provides password again
     } else {
-      // If NOT encrypted, directly import (as requested by user).
-      // We do not force encryption here.
-      await this.savePersonalInfo(dataToSave);
+      // Plain import
+      await new Promise((resolve) => {
+        chrome.storage.local.set({
+          isSafeMode: false,
+          salt: null,
+          encryptedDataKey: null,
+          validator: null,
+          personalInfo: dataToSave
+        }, resolve);
+      });
+      this.lock();
     }
     return true;
   }

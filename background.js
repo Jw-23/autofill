@@ -145,9 +145,13 @@ async function handleAIAnalyze({ apiUrl, apiKey, model, systemPrompt, userPrompt
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      temperature: 0.1, // Deterministic
-      response_format: { type: "json_object" } // Force JSON if supported
+      temperature: 0.1 // Deterministic
     };
+
+    // Only force json_object if prompt mentions JSON
+    if (systemPrompt.toLowerCase().includes('json') || userPrompt.toLowerCase().includes('json')) {
+      body.response_format = { type: "json_object" };
+    }
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -159,27 +163,24 @@ async function handleAIAnalyze({ apiUrl, apiKey, model, systemPrompt, userPrompt
     });
 
     if (!response.ok) {
-        // If 400 and it mentions response_format, retry without it (older models)
-        if (response.status === 400) {
-            const errClone = response.clone();
-            const errText = await errClone.text();
-            if (errText.includes('response_format')) {
-                delete body.response_format;
-                const retryResponse = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(body)
-                });
-                 if (!retryResponse.ok) throw new Error(await retryResponse.text());
-                 const data = await retryResponse.json();
-                 return { result: data.choices[0].message.content };
-            }
+      // If the error is specifically about json_object mode, retry without it
+      const errText = await response.text();
+      if (errText.includes('json_object') || errText.includes('response_format')) {
+        delete body.response_format;
+        const retryResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+        if (retryResponse.ok) {
+          const data = await retryResponse.json();
+          return { result: data.choices[0].message.content };
         }
-        const errText = await response.text();
-        throw new Error(`API Completion Failed ${response.status}: ${errText}`);
+      }
+      throw new Error(`API Completion Failed ${response.status}: ${errText}`);
     }
 
     const data = await response.json();

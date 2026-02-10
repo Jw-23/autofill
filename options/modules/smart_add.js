@@ -2,6 +2,7 @@
 import { VaultStorage } from './storage.js';
 import { i18n, currentLang } from './i18n.js';
 import { renderList } from './vault.js';
+import { makeDraggable } from './ui.js';
 
 const SCHEMA = {
     "type": "object",
@@ -46,18 +47,19 @@ export function initSmartAdd() {
     const modal = document.getElementById('smart-add-modal');
     const closeBtn = document.getElementById('smart-add-close');
     const submitBtn = document.getElementById('smart-add-submit-btn');
+    const clearBtn = document.getElementById('smart-add-clear-btn');
     const applyBtn = document.getElementById('smart-add-apply-btn');
     const previewArea = document.getElementById('smart-add-preview-area');
     const previewList = document.getElementById('smart-add-list');
     const input = document.getElementById('smart-add-input');
     const descP = modal.querySelector('p[data-i18n="smartAddDesc"]');
 
+    // Make modal draggable by its content box
+    const modalContent = modal.querySelector('.modal-content');
+    if (modalContent) makeDraggable(modalContent);
+
     btn.addEventListener('click', () => {
-        // Reset UI
-        previewArea.style.display = 'none';
-        previewList.innerHTML = '';
-        input.value = '';
-        // Update I18n dynamically
+        // Update I18n dynamically (maintain existing content if any)
         descP.innerText = i18n[currentLang].smartAddDesc || "Describe the data...";
         input.placeholder = i18n[currentLang].smartAddPlaceholder || "E.g. Create a persona...";
         submitBtn.innerText = i18n[currentLang].smartAddGenerate;
@@ -68,6 +70,13 @@ export function initSmartAdd() {
 
     closeBtn.addEventListener('click', () => {
         modal.style.display = 'none';
+    });
+
+    clearBtn.addEventListener('click', () => {
+        previewArea.style.display = 'none';
+        previewList.innerHTML = '';
+        input.value = '';
+        window._smartAddItems = [];
     });
     
     window.addEventListener('click', (event) => {

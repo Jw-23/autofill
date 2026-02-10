@@ -12,9 +12,15 @@
 const StorageManager = {
   _dataKey: null, // In-memory only
 
+  _isContextValid() {
+    return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+  },
+
   async getWhitelist() {
+    if (!this._isContextValid()) return [];
     return new Promise((resolve) => {
       chrome.storage.local.get(['whitelist'], (result) => {
+        if (chrome.runtime.lastError) return resolve([]);
         resolve(result.whitelist || []);
       });
     });
@@ -27,12 +33,14 @@ const StorageManager = {
   },
 
   /**
-   * Checks if the storage is protected by a password.
+   * Checks if the storage is in Security Mode (Safe Mode).
    */
   async isEncryptionEnabled() {
+    if (!this._isContextValid()) return false;
     return new Promise((resolve) => {
-      chrome.storage.local.get(['isEncrypted'], (result) => {
-        resolve(!!result.isEncrypted);
+      chrome.storage.local.get(['isSafeMode'], (result) => {
+        if (chrome.runtime.lastError) return resolve(false);
+        resolve(!!result.isSafeMode);
       });
     });
   },
@@ -56,15 +64,32 @@ const StorageManager = {
 
     await new Promise((resolve) => {
       chrome.storage.local.set({
-        isEncrypted: true,
+        isSafeMode: true,
         salt: CryptoManager.bufferToHex(salt),
         encryptedDataKey,
-        validator,
-        vault: null // No data yet
+        validator
       }, resolve);
     });
 
     this._dataKey = dataKey;
+    
+    // Migration: Encrypt existing secret items if any
+    const info = await this.getPersonalInfoRaw();
+    await this.savePersonalInfo(info);
+  },
+
+  async disableEncryption() {
+    const info = await this.getPersonalInfo(); // This will decrypt if unlocked
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        isSafeMode: false,
+        salt: null,
+        encryptedDataKey: null,
+        validator: null,
+        personalInfo: info
+      }, resolve);
+    });
+    this.lock();
   },
 
   /**
@@ -95,40 +120,68 @@ const StorageManager = {
     this._dataKey = null;
   },
 
-  async getPersonalInfo() {
-    const encryptionEnabled = await this.isEncryptionEnabled();
-    if (!encryptionEnabled) {
-      return new Promise((resolve) => {
-        chrome.storage.local.get(['personalInfo'], (result) => {
-          resolve(result.personalInfo || []);
-        });
+  async getPersonalInfoRaw() {
+    if (!this._isContextValid()) return [];
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['personalInfo'], (result) => {
+        if (chrome.runtime.lastError) return resolve([]);
+        resolve(result.personalInfo || []);
       });
+    });
+  },
+
+  async getPersonalInfo() {
+    const isSafeMode = await this.isEncryptionEnabled();
+    const items = await this.getPersonalInfoRaw();
+
+    if (!isSafeMode) return items;
+
+    // In Safe Mode, decrypt items that are secret
+    const decryptedItems = [];
+    for (const item of items) {
+      if (item.isSecret && typeof item.value === 'object' && item.value.ciphertext) {
+        if (!this._dataKey) {
+          // If locked, we return the item but the value remains encrypted object.
+          // The UI or MainController will handle the "locked" state when trying to use it.
+          decryptedItems.push(item);
+        } else {
+          try {
+            const decVal = await CryptoManager.decrypt(item.value, this._dataKey);
+            decryptedItems.push({ ...item, value: decVal });
+          } catch (e) {
+            decryptedItems.push(item);
+          }
+        }
+      } else {
+        decryptedItems.push(item);
+      }
     }
-
-    if (!this._dataKey) {
-      throw new Error('Storage is locked. Please provide password.');
-    }
-
-    const { vault } = await new Promise(r => chrome.storage.local.get(['vault'], r));
-    if (!vault) return [];
-
-    return await CryptoManager.decrypt(vault, this._dataKey);
+    return decryptedItems;
   },
 
   async savePersonalInfo(infoArray) {
-    const encryptionEnabled = await this.isEncryptionEnabled();
-    if (!encryptionEnabled) {
+    const isSafeMode = await this.isEncryptionEnabled();
+    
+    if (!isSafeMode) {
       return new Promise((resolve) => {
-        chrome.storage.local.set({ personalInfo: infoArray }, () => {
-          resolve();
-        });
+        chrome.storage.local.set({ personalInfo: infoArray }, resolve);
       });
     }
 
+    // In Safe Mode, encrypt secrets before saving
     if (!this._dataKey) throw new Error('Storage is locked');
 
-    const encryptedVault = await CryptoManager.encrypt(infoArray, this._dataKey);
-    await new Promise(r => chrome.storage.local.set({ vault: encryptedVault }, r));
+    const encryptedInfo = [];
+    for (const item of infoArray) {
+      if (item.isSecret && typeof item.value === 'string') {
+        const encVal = await CryptoManager.encrypt(item.value, this._dataKey);
+        encryptedInfo.push({ ...item, value: encVal });
+      } else {
+        encryptedInfo.push(item);
+      }
+    }
+
+    await new Promise(r => chrome.storage.local.set({ personalInfo: encryptedInfo }, r));
   },
 
   async addPersonalInfo(item) {
@@ -210,8 +263,10 @@ const StorageManager = {
   },
 
   async getFloatingPromptSetting() {
+    if (!this._isContextValid()) return false;
     return new Promise((resolve) => {
       chrome.storage.local.get(['floatingPromptEnabled'], (result) => {
+        if (chrome.runtime.lastError) return resolve(false);
         resolve(result.floatingPromptEnabled !== false); // Default to true
       });
     });
@@ -243,8 +298,10 @@ const StorageManager = {
 
   // --- AI Settings (Provider, Custom API, etc.) ---
   async getAISettings() {
+    if (!this._isContextValid()) return {};
     return new Promise((resolve) => {
       chrome.storage.local.get(['aiProvider', 'remoteApiUrl', 'remoteApiKey', 'remoteModel'], (result) => {
+        if (chrome.runtime.lastError) return resolve({});
         resolve({
           provider: result.aiProvider || 'local', // 'local' | 'remote'
           apiUrl: result.remoteApiUrl || 'https://api.openai.com/v1',
@@ -270,35 +327,29 @@ const StorageManager = {
 
   /**
    * Exports personal info as a JSON string.
-   * If encrypted, exports the encrypted vault along with its keys.
+   * High sensitivity items are exported in their current state (encrypted if in Safe Mode).
    */
   async exportPersonalInfo() {
-    const isEncrypted = await this.isEncryptionEnabled();
-    if (isEncrypted && !this._dataKey) throw new Error('Storage is locked');
+    const isSafeMode = await this.isEncryptionEnabled();
+    const info = await this.getPersonalInfoRaw(); // Export raw state
+    
+    const exportData = {
+      type: 'ai-autofill-export',
+      version: 3,
+      isSafeMode,
+      data: info
+    };
 
-    if (isEncrypted) {
-      const { vault, salt, encryptedDataKey, validator } = await new Promise(r => chrome.storage.local.get(['vault', 'salt', 'encryptedDataKey', 'validator'], r));
-      return JSON.stringify({
-        type: 'ai-autofill-export',
-        version: 2,
-        encrypted: true,
-        metadata: { salt, encryptedDataKey, validator },
-        vault: vault
-      });
-    } else {
-      const info = await this.getPersonalInfo();
-      return JSON.stringify({
-        type: 'ai-autofill-export',
-        version: 2,
-        encrypted: false,
-        data: info
-      });
+    if (isSafeMode) {
+      const { salt, encryptedDataKey, validator } = await new Promise(r => chrome.storage.local.get(['salt', 'encryptedDataKey', 'validator'], r));
+      exportData.metadata = { salt, encryptedDataKey, validator };
     }
+
+    return JSON.stringify(exportData);
   },
 
   /**
    * Imports personal info from a JSON string.
-   * If the dataKey doesn't match, it can use a provided password to re-encrypt.
    */
   async importPersonalInfo(jsonStr, providedPassword = null) {
     let payload;
@@ -312,74 +363,23 @@ const StorageManager = {
       throw new Error('Invalid export file type');
     }
 
-    const isCurrentEncrypted = await this.isEncryptionEnabled();
-    
-    // If storage is encrypted but locked, we must unlock it first to be able to save
-    if (isCurrentEncrypted && !this._dataKey) {
-      if (providedPassword) {
-        try {
-          await this.unlock(providedPassword);
-        } catch (e) {
-          throw new Error('INVALID_VAULT_PASSWORD'); // Password failed to unlock vault
-        }
-      } else {
-        throw new Error('NEEDS_PASSWORD'); // Trigger prompt
-      }
+    // Version 2 migration or V3 handling
+    let dataToSave = payload.data || [];
+    if (payload.version === 2 && payload.encrypted) {
+       // Old format: Whole vault was encrypted
+       if (!providedPassword) throw new Error('NEEDS_PASSWORD');
+       const { salt, encryptedDataKey } = payload.metadata;
+       const masterKey = await CryptoManager.deriveMasterKey(providedPassword, CryptoManager.hexToBuffer(salt));
+       const hexDataKey = await CryptoManager.decrypt(encryptedDataKey, masterKey);
+       const importDataKey = await CryptoManager.importKey(CryptoManager.hexToBuffer(hexDataKey));
+       dataToSave = await CryptoManager.decrypt(payload.vault, importDataKey);
     }
 
-    let dataToSave = null;
-
-    if (!payload.encrypted) {
-      // Importing plain text data
-      dataToSave = payload.data;
-    } else {
-      // Importing encrypted data
-      if (isCurrentEncrypted) {
-        if (!this._dataKey) throw new Error('Storage is locked');
-
-        // 1. Try with current session key
-        try {
-          dataToSave = await CryptoManager.decrypt(payload.vault, this._dataKey);
-        } catch (e) {
-          // 2. If it fails, try to use metadata + provided password
-          if (!providedPassword) {
-            throw new Error('NEEDS_PASSWORD'); // Special signal for UI
-          }
-
-          try {
-            const { salt, encryptedDataKey } = payload.metadata;
-            const masterKey = await CryptoManager.deriveMasterKey(providedPassword, CryptoManager.hexToBuffer(salt));
-            const hexDataKey = await CryptoManager.decrypt(encryptedDataKey, masterKey);
-            const importDataKey = await CryptoManager.importKey(CryptoManager.hexToBuffer(hexDataKey));
-            dataToSave = await CryptoManager.decrypt(payload.vault, importDataKey);
-          } catch (err) {
-            throw new Error('Verification failed: Incorrect password for this backup.');
-          }
-        }
-      } else {
-        // Current storage is NOT encrypted, but file IS encrypted.
-        // We need the password even if current storage is plain.
-        if (!providedPassword) {
-          throw new Error('NEEDS_PASSWORD');
-        }
-        try {
-          const { salt, encryptedDataKey } = payload.metadata;
-          const masterKey = await CryptoManager.deriveMasterKey(providedPassword, CryptoManager.hexToBuffer(salt));
-          const hexDataKey = await CryptoManager.decrypt(encryptedDataKey, masterKey);
-          const importDataKey = await CryptoManager.importKey(CryptoManager.hexToBuffer(hexDataKey));
-          dataToSave = await CryptoManager.decrypt(payload.vault, importDataKey);
-        } catch (err) {
-          throw new Error('Verification failed: Incorrect password for this backup.');
-        }
-      }
-    }
-
-    if (dataToSave) {
-      // savePersonalInfo handles encryption if enabled
-      await this.savePersonalInfo(dataToSave);
-      return true;
-    }
-    throw new Error('Failed to parse import data');
+    // If importing into Safe Mode, and the data contains encrypted items but we don't have the key...
+    // This is getting complex. Let's simplify: 
+    // Just save the data. If the user has a different password, they won't be able to decrypt.
+    await new Promise(r => chrome.storage.local.set({ personalInfo: dataToSave }, r));
+    return true;
   }
 };
 

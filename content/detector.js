@@ -10,8 +10,12 @@ const InputDetector = {
     return inputs.filter(input => {
       const style = window.getComputedStyle(input);
       const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
-      const isEditable = input.isContentEditable || input.getAttribute('contenteditable') !== null;
-      return isVisible && (isEditable || (!input.disabled && !input.readOnly));
+      if (!isVisible) return false;
+
+      if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {
+        return !input.disabled && !input.readOnly;
+      }
+      return input.isContentEditable || input.getAttribute('contenteditable') !== null;
     });
   },
 

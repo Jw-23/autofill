@@ -47,6 +47,67 @@ export function showPrompt(title, desc, okText = null) {
 }
 
 /**
+ * Makes an element draggable by its handle or itself
+ */
+export function makeDraggable(modalContent) {
+  let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+  
+  // Use the dedicated handle bar
+  const handle = modalContent.querySelector('.modal-drag-handle') || modalContent;
+  
+  handle.onmousedown = dragMouseDown;
+
+  function dragMouseDown(e) {
+    if (e.button !== 0) return; // Only left click
+    
+    // Don't drag if clicking the close button inside the handle
+    if (e.target.classList.contains('close')) return;
+    
+    // Also ignore clicks on inputs/buttons if the handle contains any (fallback case)
+    if (['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT'].includes(e.target.tagName)) return;
+    
+    e.preventDefault();
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+    
+    // Initial positioning calibration
+    const rect = modalContent.getBoundingClientRect();
+    modalContent.style.width = rect.width + 'px'; // Lock width to prevent shrinking
+    modalContent.style.margin = '0';
+    modalContent.style.position = 'absolute';
+    modalContent.style.top = rect.top + 'px';
+    modalContent.style.left = rect.left + 'px';
+    modalContent.style.zIndex = '2000';
+  }
+
+  function elementDrag(e) {
+    e = e || window.event;
+    e.preventDefault();
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    
+    const newTop = modalContent.offsetTop - pos2;
+    const newLeft = modalContent.offsetLeft - pos1;
+
+    // Bounds check
+    const maxX = window.innerWidth - modalContent.offsetWidth;
+    const maxY = window.innerHeight - modalContent.offsetHeight;
+
+    modalContent.style.top = Math.max(0, Math.min(newTop, maxY)) + "px";
+    modalContent.style.left = Math.max(0, Math.min(newLeft, maxX)) + "px";
+  }
+
+  function closeDragElement() {
+    document.onmouseup = null;
+    document.onmousemove = null;
+  }
+}
+
+/**
  * AI Model Download Progress Handler
  * @param {boolean} isManual - True if triggered by button click
  */

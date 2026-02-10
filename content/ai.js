@@ -80,17 +80,17 @@ Your task is to analyze form fields and map them to the best matching key from t
 ${JSON.stringify(availableKeys.map(k => ({ key: k.keyname, desc: k.description })), null, 2)}
 
 [Matching Rules]:
-1. Return a JSON object with a "matches" array.
+1. You MUST return a valid JSON object with a "matches" array.
 2. Each match: { "inputId": <int>, "matchedKey": "<keyname>" }.
 3. "matchedKey" MUST be one of the keys from the vault.
 4. If a field matches nothing with high confidence (>90%), omit it or do not include a matchedKey.
-5. STRICTLY output valid JSON only. No markdown formatting.`;
+5. STRICTLY output valid JSON only. Do not use block-code markdown.`;
 
     // Construct User Prompt
     // Limit context length if needed, but for batch it should be okay.
     // Format: "FieldID: <id>, Context: <context>"
     const fieldDescriptions = fields.map(f => `FieldID: ${f.id}\nContext: ${f.context}`).join('\n---\n');
-    const userPrompt = `Analyze these form fields and find matches:\n\n${fieldDescriptions}`;
+    const userPrompt = `Analyze the following fields and return the results as a JSON object:\n\n${fieldDescriptions}`;
 
     if (isDebug) console.log('AIManager [Remote]: Sending request to background...', { model, fieldCount: fields.length });
 

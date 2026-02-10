@@ -1,31 +1,25 @@
 // options/modules/vault.js
 import { VaultStorage } from './storage.js';
 import { i18n, currentLang } from './i18n.js';
+import { makeDraggable } from './ui.js';
 
 export async function renderList() {
   const infoList = document.getElementById('info-list');
   const unlockCard = document.getElementById('unlock-card');
   const addForm = document.getElementById('add-form');
   
-  // Hold current scroll position
-  const currentScrollY = window.scrollY;
+  const isSafeMode = await VaultStorage.isEncryptionEnabled();
+  const info = await VaultStorage.getPersonalInfo();
   
-  let info = [];
-  try {
-    info = await VaultStorage.getPersonalInfo();
-    unlockCard.style.display = 'none';
-    addForm.style.display = 'block';
-  } catch (e) {
-    if (e.message.indexOf('locked') !== -1) {
-      unlockCard.style.display = 'block';
-      addForm.style.display = 'none';
-      infoList.innerHTML = ''; // Clear only if locked
-      return;
-    }
-    console.error(e);
-  }
+  // If in safe mode and locked, show unlock card if any secretive items exist
+  const isLocked = isSafeMode && !VaultStorage._dataKey;
+  unlockCard.style.display = isLocked ? 'block' : 'none';
+  
+  // We allow adding info even if locked (it just might not be able to save if we try to encrypt, 
+  // actually VaultStorage.savePersonalInfo throws 'locked' if it needs to encrypt).
+  // For simplicity, let's keep addForm visible but warn if encryption is needed.
+  addForm.style.display = 'block';
 
-  // Clear list only after we have data to minimize layout shift
   infoList.innerHTML = '';
 
   if (info.length === 0) {
@@ -36,8 +30,21 @@ export async function renderList() {
   info.forEach(item => {
     const div = document.createElement('div');
     div.className = 'info-item';
-    const displayValue = item.isSecret ? '••••••••' : item.value;
+    
+    let displayValue = item.value;
+    let isValueLocked = false;
+    
+    if (item.isSecret) {
+      if (typeof item.value === 'object') {
+        displayValue = ' [Encrypted / 已加密] ';
+        isValueLocked = true;
+      } else {
+        displayValue = '••••••••'; // Masked but decrypted
+      }
+    }
+
     const sensitivityTag = item.isSecret ? `<span style="color:var(--danger-color); font-size:12px; font-weight:bold; margin-left:8px;">[高敏感/Sensitive]</span>` : '';
+    
     div.innerHTML = `
       <div class="item-main">
         <div class="item-key">${item.keyname} ${sensitivityTag}</div>
@@ -45,7 +52,7 @@ export async function renderList() {
         <div class="item-val">${displayValue}</div>
       </div>
       <div class="item-actions">
-        <button class="edit-btn" data-key="${item.keyname}">${i18n[currentLang].editBtn}</button>
+        <button class="edit-btn" data-key="${item.keyname}" ${isValueLocked ? 'disabled title="Unlock to edit"' : ''}>${i18n[currentLang].editBtn}</button>
         <button class="delete-btn" data-key="${item.keyname}">${i18n[currentLang].deleteBtn}</button>
       </div>
     `;
@@ -91,6 +98,10 @@ export function hideEditModal() {
 }
 
 export async function initVault() {
+  const editModal = document.getElementById('edit-modal');
+  const editModalContent = editModal.querySelector('.modal-content');
+  if (editModalContent) makeDraggable(editModalContent);
+
   document.getElementById('add-btn').onclick = async () => {
     const keyname = document.getElementById('new-keyname').value.trim();
     const description = document.getElementById('new-description').value.trim();

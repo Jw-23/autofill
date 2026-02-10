@@ -238,8 +238,11 @@
 
   <!-- Edit Modal -->
   <div id="edit-modal" class="modal">
-    <div class="modal-content">
-      <h3 data-i18n="editTitle">Edit Info</h3>
+    <div class="modal-content" style="padding-top: 0;">
+      <div class="modal-drag-handle">
+         <span class="close" onclick="document.getElementById('edit-modal').style.display='none'">&times;</span>
+      </div>
+      <h3 data-i18n="editTitle" style="margin-top: 10px;">Edit Info</h3>
       <input type="hidden" id="edit-old-key">
       <div class="form-group">
         <label data-i18n="labelKeyname">Keyname</label>
@@ -322,9 +325,11 @@
 
   <!-- Smart Add Modal -->
   <div id="smart-add-modal" class="modal">
-    <div class="modal-content" style="max-width: 600px;">
-      <span class="close" id="smart-add-close">&times;</span>
-      <h2 data-i18n="smartAddModalTitle">AI Smart Add</h2>
+    <div class="modal-content" style="max-width: 600px; padding-top: 0;">
+      <div class="modal-drag-handle">
+        <span class="close" id="smart-add-close">&times;</span>
+      </div>
+      <h2 data-i18n="smartAddModalTitle" style="margin-top: 10px;">AI Smart Add</h2>
       <p data-i18n="smartAddDesc" style="color: #666; margin-bottom: 10px;"></p>
       
       <textarea id="smart-add-input" rows="5" style="width:100%; padding:10px; font-family:inherit; border:1px solid #ccc; border-radius:4px; resize:vertical;" placeholder=""></textarea>
@@ -340,6 +345,7 @@
       </div>
 
       <div style="text-align: right; margin-top: 15px;" id="smart-add-actions">
+        <button id="smart-add-clear-btn" class="lang-btn" style="margin-right: 10px;">Clear</button>
         <button id="smart-add-submit-btn" class="save-btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" data-i18n="smartAddGenerate">Generate</button>
       </div>
     </div>

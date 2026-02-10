@@ -269,20 +269,82 @@ export async function initSettings() {
   const encryptionBtn = document.getElementById('enable-encryption');
 
   securityBtn.onclick = async () => {
-    const isEnc = await VaultStorage.isEncryptionEnabled();
-    const statusText = document.getElementById('security-status');
-    const setPassArea = document.getElementById('set-pass-area');
-    
-    statusText.innerText = isEnc ? i18n[currentLang].securityStatusOn : i18n[currentLang].securityStatusOff;
-    setPassArea.style.display = isEnc ? 'none' : 'block';
+    updateSecurityStatus();
     securityModal.style.display = 'block';
   };
 
-  document.getElementById('close-security').onclick = () => {
-    securityModal.style.display = 'none';
-  };
+  async function updateSecurityStatus() {
+    const isEnc = await VaultStorage.isEncryptionEnabled();
+    const statusTextDisplay = document.getElementById('security-status-display');
+    const statusTextModal = document.getElementById('security-status');
+    const setPassArea = document.getElementById('set-pass-area');
+    
+    const txt = isEnc ? i18n[currentLang].securityStatusOn : i18n[currentLang].securityStatusOff;
+    if (statusTextDisplay) statusTextDisplay.innerText = txt;
+    if (statusTextModal) statusTextModal.innerText = txt;
+    
+    setPassArea.innerHTML = ''; // Clear it
 
-  encryptionBtn.onclick = async () => {
+    if (!isEnc) {
+      setPassArea.innerHTML = `
+        <div class="form-group">
+          <label>${i18n[currentLang].newMasterPass || 'New Master Password'}</label>
+          <input type="password" id="new-master-pass">
+        </div>
+        <div class="form-group">
+          <label>${i18n[currentLang].confirmMasterPass || 'Confirm Password'}</label>
+          <input type="password" id="confirm-master-pass">
+        </div>
+        <button id="enable-encryption" class="save-btn" style="width:100%">${i18n[currentLang].enableEncryption}</button>
+      `;
+      document.getElementById('enable-encryption').onclick = handleEnableEncryption;
+    } else {
+      setPassArea.innerHTML = `
+        <div id="change-pass-section" style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee;">
+          <h4 style="margin-top:0;">${i18n[currentLang].changePassBtn}</h4>
+          <div class="form-group">
+            <label>${i18n[currentLang].oldPass}</label>
+            <input type="password" id="old-pass">
+          </div>
+          <div class="form-group">
+            <label>${i18n[currentLang].newPass}</label>
+            <input type="password" id="new-pass">
+          </div>
+          <div class="form-group">
+            <label>${i18n[currentLang].confirmNewPass}</label>
+            <input type="password" id="confirm-new-pass">
+          </div>
+          <button id="submit-change-pass" class="save-btn" style="width:100%">${i18n[currentLang].changePassBtn}</button>
+        </div>
+        <button id="disable-encryption" class="delete-btn" style="width:100%">${i18n[currentLang].disableEncryption || 'Switch to Normal Mode (Decrypt Secrets)'}</button>
+      `;
+      document.getElementById('submit-change-pass').onclick = handleChangePassword;
+      document.getElementById('disable-encryption').onclick = handleDisableEncryption;
+    }
+  }
+
+  async function handleChangePassword() {
+    const oldPass = document.getElementById('old-pass').value;
+    const newPass = document.getElementById('new-pass').value;
+    const confirmNewPass = document.getElementById('confirm-new-pass').value;
+
+    if (!oldPass || !newPass) return alert(i18n[currentLang].passReq);
+    if (newPass !== confirmNewPass) return alert(i18n[currentLang].passMatchError);
+
+    try {
+      await VaultStorage.changePassword(oldPass, newPass);
+      alert(i18n[currentLang].passChangeSuccess);
+      updateSecurityStatus();
+    } catch (e) {
+      if (e.message === 'INVALID_OLD_PASSWORD') {
+        alert(i18n[currentLang].invalidOldPass);
+      } else {
+        alert(e.message);
+      }
+    }
+  }
+
+  async function handleEnableEncryption() {
     const pass = document.getElementById('new-master-pass').value;
     const confirmPass = document.getElementById('confirm-master-pass').value;
     
@@ -290,23 +352,44 @@ export async function initSettings() {
     if (pass !== confirmPass) return alert(i18n[currentLang].passMatchError);
     
     if (confirm(i18n[currentLang].enableConfirm)) {
-      const oldData = await VaultStorage.getPersonalInfo();
       await VaultStorage.setupEncryption(pass);
-      await VaultStorage.savePersonalInfo(oldData);
-      chrome.storage.local.remove('personalInfo');
       alert(i18n[currentLang].encDone);
-      securityModal.style.display = 'none';
+      updateSecurityStatus();
       renderList();
     }
-  };
+  }
 
-  document.getElementById('factory-reset').onclick = async () => {
-    if (confirm(i18n[currentLang].resetConfirm)) {
-      await new Promise(r => chrome.storage.local.clear(r));
-      VaultStorage.lock();
-      alert('All categories and security settings have been reset.');
-      location.reload();
+  async function handleDisableEncryption() {
+    if (!VaultStorage._dataKey) {
+      const pass = prompt(i18n[currentLang].unlockPrompt || "Enter password to decrypt data:");
+      if (!pass) return;
+      try {
+        await VaultStorage.unlock(pass);
+      } catch (e) {
+        return alert(e.message);
+      }
     }
+
+    if (confirm(i18n[currentLang].disableConfirm || "Switch to Normal Mode? High-sensitivity data will be stored unencrypted.")) {
+      await VaultStorage.disableEncryption();
+      updateSecurityStatus();
+      renderList();
+    }
+  }
+
+  const factoryResetBtn = document.getElementById('factory-reset');
+  if (factoryResetBtn) {
+    factoryResetBtn.onclick = async () => {
+      if (confirm(i18n[currentLang].resetConfirm || 'Are you sure you want to destroy all data?')) {
+        await VaultStorage.factoryReset();
+        alert(currentLang === 'zh' ? '数据已销毁，正在刷新...' : 'Data destroyed, refreshing...');
+        window.location.reload();
+      }
+    };
+  }
+
+  document.getElementById('close-security').onclick = () => {
+    securityModal.style.display = 'none';
   };
 
   // Sidebar Navigation

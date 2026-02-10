@@ -12,6 +12,46 @@ const UIComponents = {
     return overlay;
   },
 
+  createSuggestionBox: (onSelect) => {
+    const list = document.createElement('div');
+    list.id = 'ai-autofill-suggestion-box';
+    Object.assign(list.style, {
+      position: 'absolute', display: 'none', zIndex: '10001',
+      backgroundColor: 'white', border: '1px solid #ccc',
+      borderRadius: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      maxHeight: '200px', overflowY: 'auto',
+      fontFamily: 'sans-serif', minWidth: '120px'
+    });
+    document.body.appendChild(list);
+
+    const update = (items, target) => {
+      list.innerHTML = '';
+      if (!items || items.length === 0) {
+        list.style.display = 'none';
+        return;
+      }
+      items.forEach(item => {
+        const div = document.createElement('div');
+        div.innerText = item.value;
+        Object.assign(div.style, {
+          padding: '8px 12px', cursor: 'pointer', fontSize: '13px',
+          borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap'
+        });
+        div.onmouseover = () => div.style.backgroundColor = '#f1f3f4';
+        div.onmouseout = () => div.style.backgroundColor = 'transparent';
+        div.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          onSelect(target, item.value);
+          list.style.display = 'none';
+        };
+        list.appendChild(div);
+      });
+      UIComponents.updateFloatingPromptPosition({ box: list }, target);
+    };
+
+    return { box: list, update };
+  },
+
   customAlert: (titleText, bodyText) => {
     return new Promise((resolve) => {
       const overlay = UIComponents.createOverlay();
@@ -109,7 +149,7 @@ const UIComponents = {
       backgroundColor: 'rgba(255, 255, 255, 0.98)', border: '1px solid #ddd',
       borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
       padding: '8px', flexDirection: 'row', alignItems: 'center', gap: '8px',
-      fontFamily: 'sans-serif', transition: 'opacity 0.2s', opacity: '0'
+      fontFamily: 'sans-serif', transition: 'opacity 0.1s', opacity: '0'
     });
 
     const input = document.createElement('input');
@@ -140,7 +180,7 @@ const UIComponents = {
     box.appendChild(undoBtn);
     document.body.appendChild(box);
 
-    const fp = { box, input, btn, undoBtn, targetInput: null };
+const fp = { box, input, btn, undoBtn, targetInput: null, hideTimeout: null };
 
     btn.onclick = async (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -158,12 +198,23 @@ const UIComponents = {
       onUndo(fp.targetInput);
       undoBtn.style.display = 'none';
     };
-    
+
     input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); btn.click(); } };
 
     // Hover logic
-    box.onmouseenter = () => { box.style.opacity = '1'; };
-    box.onmouseleave = () => { box.style.opacity = '0'; };
+    box.onmouseenter = () => { 
+      clearTimeout(fp.hideTimeout);
+      box.style.opacity = '1'; 
+      box.style.pointerEvents = 'auto';
+    };
+    box.onmouseleave = () => { 
+      fp.hideTimeout = setTimeout(() => {
+        if (!box.matches(':hover') && !fp.targetInput?.matches(':hover') && document.activeElement !== input) {
+          box.style.opacity = '0'; 
+          box.style.pointerEvents = 'none';
+        }
+      }, 300);
+    };
 
     return fp;
   },
@@ -171,31 +222,49 @@ const UIComponents = {
   updateFloatingPromptPosition: (fp, target) => {
     const rect = target.getBoundingClientRect();
     const box = fp.box;
-    box.style.display = 'flex';
-    box.style.opacity = '0'; // Start hidden
-    fp.undoBtn.style.display = 'none'; // Reset undo button for new focus
+    box.style.display = box.id === 'ai-autofill-suggestion-box' ? 'block' : 'flex';
     
-    // Also show when target is hovered
-    const show = () => { box.style.opacity = '1'; };
-    const hide = () => { if (!box.matches(':hover')) box.style.opacity = '0'; };
-    
-    target.removeEventListener('mouseenter', fp._prevEnter);
-    target.removeEventListener('mouseleave', fp._prevLeave);
-    target.addEventListener('mouseenter', show);
-    target.addEventListener('mouseleave', hide);
-    fp._prevEnter = show;
-    fp._prevLeave = hide;
+    if (fp.undoBtn) {
+      box.style.opacity = '0'; // Start hidden for prompt box
+      box.style.pointerEvents = 'none';
+      fp.undoBtn.style.display = 'none';
+      
+      const show = () => { 
+        clearTimeout(fp.hideTimeout);
+        box.style.opacity = '1'; 
+        box.style.pointerEvents = 'auto';
+      };
+      const hide = () => { 
+        fp.hideTimeout = setTimeout(() => {
+          if (!box.matches(':hover') && !target.matches(':hover') && document.activeElement !== fp.input) {
+            box.style.opacity = '0'; 
+            box.style.pointerEvents = 'none';
+          }
+        }, 300); // 300ms buffer to cross the gap
+      };
+      
+      if (fp._prevTarget) {
+        fp._prevTarget.removeEventListener('mouseenter', fp._prevEnter);
+        fp._prevTarget.removeEventListener('mouseleave', fp._prevLeave);
+      }
+      target.addEventListener('mouseenter', show);
+      target.addEventListener('mouseleave', hide);
+      fp._prevEnter = show;
+      fp._prevLeave = hide;
+      fp._prevTarget = target;
+    } else {
+      box.style.opacity = '1'; // Show suggestions immediately
+      box.style.pointerEvents = 'auto';
+    }
 
-    const boxHeight = 45; // Approx height
+    const boxHeight = box.offsetHeight || 45;
     const spaceAbove = rect.top;
     const spaceBelow = window.innerHeight - rect.bottom;
 
     if (spaceAbove > boxHeight + 10) {
       box.style.top = `${rect.top + window.scrollY - boxHeight - 5}px`;
-    } else if (spaceBelow > boxHeight + 10) {
-      box.style.top = `${rect.bottom + window.scrollY + 5}px`;
     } else {
-      box.style.top = `${rect.top + window.scrollY - 5}px`;
+      box.style.top = `${rect.bottom + window.scrollY + 5}px`;
     }
     box.style.left = `${rect.left + window.scrollX}px`;
     fp.targetInput = target;
