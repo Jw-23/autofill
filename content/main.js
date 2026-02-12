@@ -15,7 +15,9 @@ const MainController = {
 
   async init() {
     // Prevent double initialization
-    if (window.__AI_AUTOFILL_INITED__) return;
+    if (window.__AI_AUTOFILL_INITED__) {
+      return;
+    }
     window.__AI_AUTOFILL_INITED__ = true;
 
     console.log('AI Autofill: Initialized');
@@ -103,6 +105,9 @@ const MainController = {
     if (this.lastSilentMatchTarget === target) return;
     if (this.isMatchingSet.has(target)) return;
 
+    const isDebug = await StorageManager.getDebugSetting();
+    if (isDebug) console.log('MainController: runSilentMatching triggered for', target);
+
     this.lastSilentMatchTarget = target;
     this.isMatchingSet.add(target);
 
@@ -110,53 +115,59 @@ const MainController = {
     await new Promise(r => setTimeout(r, 100));
     
     try {
-      if (document.activeElement !== target) return;
+      if (document.activeElement !== target) {
+        if (isDebug) console.log('MainController: Target lost focus, aborting silent match');
+        return;
+      }
 
       const context = InputDetector.getInputContext(target);
+      if (isDebug) console.log('MainController: Extracted context:', context);
       if (!context) return;
 
       const info = await StorageManager.getPersonalInfo();
-      const nonSensitiveInfo = info.filter(item => !item.isSecret);
-      if (nonSensitiveInfo.length === 0) return;
+      const whitelist = await StorageManager.getWhitelist();
+      const currentHost = window.location.hostname;
 
-      const aiSettings = await StorageManager.getAISettings();
-      if (aiSettings.provider !== 'remote') return;
-
-      const keysStr = nonSensitiveInfo.map(i => i.keyname).join(', ');
-
-      // Use JSON format for more robust matching
-      const systemPrompt = "You are a field classifier. Match the context to the best entries in the personal data vault. You MUST output your response in JSON format.";
-      const userPrompt = `Context: "${context}". Available Keys: [${keysStr}]. Return a JSON object like {"matches": ["key1"]} or {"matches": []} if no match.`;
-      
-      if (!StorageManager._isContextValid()) return;
-      const response = await chrome.runtime.sendMessage({
-        action: 'ai-analyze',
-        apiUrl: aiSettings.apiUrl,
-        apiKey: aiSettings.apiKey,
-        model: aiSettings.model,
-        systemPrompt,
-        userPrompt
+      // Whitelist check
+      const isWhitelisted = whitelist.some(p => {
+        const regex = new RegExp('^' + p.split('.').map(part => part === '*' ? '.*' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$');
+        return regex.test(currentHost);
       });
 
-      if (response.error || !response.result) return;
-      
-      let matchedKeys = [];
-      try {
-        const cleaned = response.result.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        const parsed = JSON.parse(cleaned);
-        matchedKeys = parsed.matches || [];
-      } catch (e) {
-        // Fallback to text matching if JSON fails
-        const result = response.result.toLowerCase();
-        matchedKeys = nonSensitiveInfo
-          .filter(i => result.includes(i.keyname.toLowerCase()))
-          .map(i => i.keyname);
-      }
+      // User Logic: 
+      // Not Whitelisted -> Match ALL (since it will use fake data)
+      // Whitelisted -> Match Non-Sensitive ONLY
+      const candidateKeys = isWhitelisted 
+        ? info.filter(item => !item.isSecret)
+        : info;
 
-      if (matchedKeys.length > 0) {
-        const matchedItems = nonSensitiveInfo.filter(i => matchedKeys.includes(i.keyname));
-        if (matchedItems.length > 0 && target === document.activeElement) {
-          this.suggestionBox.update(matchedItems, target);
+      if (candidateKeys.length === 0) {
+        if (isDebug) console.log('MainController: No candidate keys for analysis');
+        return;
+      }
+      
+      // Use AIManager for unified local/remote handling
+      const matches = await AIManager.identifyFieldsBatch(
+        [{ id: 0, context }], 
+        candidateKeys, 
+        isDebug
+      );
+
+      if (isDebug) console.log('MainController: Match results:', matches);
+
+      if (matches && matches.length > 0 && matches[0].matchedKey) {
+        const matchedKey = matches[0].matchedKey;
+        const matchedItem = candidateKeys.find(i => i.keyname === matchedKey);
+        
+        if (matchedItem && target === document.activeElement) {
+          // If it's a secret but NOT whitelisted, use fake value for suggestion
+          let displayItem = { ...matchedItem };
+          if (matchedItem.isSecret && !isWhitelisted) {
+            displayItem.value = matchedItem.fakeValue || '••••••••';
+          }
+
+          if (isDebug) console.log('MainController: Showing suggestion box for', matchedKey);
+          this.suggestionBox.update([displayItem], target);
         }
       }
     } catch (e) {
@@ -181,14 +192,66 @@ const MainController = {
    */
   async runStreamingFill(target, prompt) {
     const aiSettings = await StorageManager.getAISettings();
-    if (aiSettings.provider !== 'remote') return alert('请先在设置中配置远程 AI 提供商。');
+    const context = InputDetector.getInputContext(target);
+    const isDebug = await StorageManager.getDebugSetting();
+    
+    if (isDebug) console.log('MainController: runStreamingFill started', { provider: aiSettings.provider, prompt, context });
 
     // Save for undo
     this.lastValueMap.set(target, target.isContentEditable ? target.innerHTML : target.value);
 
+    if (target.isContentEditable) target.innerHTML = '';
+    else target.value = ''; 
+
+    let lastUpdate = 0;
+    const updateUI = (chunk) => {
+      if (isDebug) console.log('MainController: Received chunk:', chunk);
+      if (target.isContentEditable) {
+        target.innerHTML += chunk;
+      } else {
+        target.value += chunk;
+      }
+      const now = Date.now();
+      if (now - lastUpdate > 30) { 
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        lastUpdate = now;
+      }
+    };
+
+    const finalizeUI = () => {
+      if (isDebug) console.log('MainController: Finalizing UI update');
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    if (aiSettings.provider === 'local') {
+      const session = await AIManager.getSession();
+      if (!session) {
+        if (isDebug) console.warn('MainController: Local session not available for streaming');
+        return;
+      }
+      try {
+        const fullPrompt = `You are a helpful assistant. User is focusing on a field described by the context: "${context}".\nUser Request: "${prompt}"\nOutput ONLY the result text to fill. NO conversational text.`;
+        if (isDebug) console.log('MainController [Local]: Sending prompt:', fullPrompt);
+        const stream = session.promptStreaming(fullPrompt);
+        let previousText = "";
+        for await (const chunk of stream) {
+          const newChunk = chunk.slice(previousText.length);
+          if (newChunk) {
+            updateUI(newChunk);
+            previousText = chunk;
+          }
+        }
+        finalizeUI();
+      } catch (e) {
+        console.error('Local AI Stream failed:', e);
+        alert('本地 AI 生成失败：' + e.message);
+      }
+      return;
+    }
+
+    // Remote Provider Logic (existing)
     const port = chrome.runtime.connect({ name: 'ai-stream' });
-    const context = InputDetector.getInputContext(target);
-    
     port.postMessage({
       action: 'stream-completion',
       apiUrl: aiSettings.apiUrl,
@@ -198,29 +261,13 @@ const MainController = {
       systemPrompt: `You are a helpful assistant. User is focusing on "${context}". Output ONLY the content to fill.`
     });
 
-    if (target.isContentEditable) target.innerHTML = '';
-    else target.value = ''; 
-
-    let lastUpdate = 0;
     return new Promise((resolve) => {
       port.onMessage.addListener((msg) => {
         if (msg.chunk) {
-          if (target.isContentEditable) {
-            target.innerHTML += msg.chunk;
-          } else {
-            target.value += msg.chunk;
-          }
-          
-          // Batch event dispatches to improve performance
-          const now = Date.now();
-          if (now - lastUpdate > 30) { 
-            target.dispatchEvent(new Event('input', { bubbles: true }));
-            lastUpdate = now;
-          }
+          updateUI(msg.chunk);
         }
         if (msg.done || msg.error) {
-          target.dispatchEvent(new Event('input', { bubbles: true })); // Final event
-          target.dispatchEvent(new Event('change', { bubbles: true }));
+          finalizeUI();
           if (msg.error) console.error('Streaming error:', msg.error);
           port.disconnect();
           resolve();

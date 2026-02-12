@@ -66,39 +66,49 @@ export function makeDraggable(modalContent) {
     // Also ignore clicks on inputs/buttons if the handle contains any (fallback case)
     if (['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT'].includes(e.target.tagName)) return;
     
-    e.preventDefault();
+    const rect = modalContent.getBoundingClientRect();
     pos3 = e.clientX;
     pos4 = e.clientY;
+    
+    // Switch to absolute positioning if not already
+    if (modalContent.style.position !== 'absolute') {
+        modalContent.style.width = rect.width + 'px'; 
+        modalContent.style.height = rect.height + 'px';
+        modalContent.style.margin = '0';
+        modalContent.style.position = 'absolute';
+        modalContent.style.top = rect.top + 'px';
+        modalContent.style.left = rect.left + 'px';
+    }
+    
+    modalContent.style.zIndex = '2000';
+    
     document.onmouseup = closeDragElement;
     document.onmousemove = elementDrag;
-    
-    // Initial positioning calibration
-    const rect = modalContent.getBoundingClientRect();
-    modalContent.style.width = rect.width + 'px'; // Lock width to prevent shrinking
-    modalContent.style.margin = '0';
-    modalContent.style.position = 'absolute';
-    modalContent.style.top = rect.top + 'px';
-    modalContent.style.left = rect.left + 'px';
-    modalContent.style.zIndex = '2000';
+    e.preventDefault();
   }
 
+  let ticking = false;
   function elementDrag(e) {
-    e = e || window.event;
-    e.preventDefault();
-    pos1 = pos3 - e.clientX;
-    pos2 = pos4 - e.clientY;
-    pos3 = e.clientX;
-    pos4 = e.clientY;
+    if (ticking) return;
+    ticking = true;
     
-    const newTop = modalContent.offsetTop - pos2;
-    const newLeft = modalContent.offsetLeft - pos1;
+    requestAnimationFrame(() => {
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        
+        const newTop = modalContent.offsetTop - pos2;
+        const newLeft = modalContent.offsetLeft - pos1;
 
-    // Bounds check
-    const maxX = window.innerWidth - modalContent.offsetWidth;
-    const maxY = window.innerHeight - modalContent.offsetHeight;
+        // Bounds check
+        const maxX = window.innerWidth - modalContent.offsetWidth;
+        const maxY = window.innerHeight - modalContent.offsetHeight;
 
-    modalContent.style.top = Math.max(0, Math.min(newTop, maxY)) + "px";
-    modalContent.style.left = Math.max(0, Math.min(newLeft, maxX)) + "px";
+        modalContent.style.top = Math.max(0, Math.min(newTop, maxY)) + "px";
+        modalContent.style.left = Math.max(0, Math.min(newLeft, maxX)) + "px";
+        ticking = false;
+    });
   }
 
   function closeDragElement() {
